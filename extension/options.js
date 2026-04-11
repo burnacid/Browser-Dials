@@ -49,9 +49,52 @@ const STORAGE_KEY_SPLASH_UNSPLASH_KEY = 'splash_unsplash_access_key';
 const STORAGE_KEY_SPLASH_PUBLIC_URL = 'splash_public_cached_url';
 const STORAGE_KEY_SPLASH_PUBLIC_LAST_FETCH = 'splash_public_last_fetch';
 
+const PROFILE_THEME_MODE_AUTO = 'auto';
+const PROFILE_THEME_MODE_LIGHT = 'light';
+const PROFILE_THEME_MODE_DARK = 'dark';
+const PROFILE_THEME_MODE_CUSTOM = 'custom';
+const PROFILE_THEME_MODES = new Set([
+  PROFILE_THEME_MODE_AUTO,
+  PROFILE_THEME_MODE_LIGHT,
+  PROFILE_THEME_MODE_DARK,
+  PROFILE_THEME_MODE_CUSTOM,
+]);
+const PROFILE_THEME_COLOUR_KEYS = ['bg', 'surface', 'surface2', 'border', 'text', 'textMuted', 'accent', 'accentDark'];
+const PROFILE_THEME_VAR_MAP = {
+  bg: '--bg',
+  surface: '--surface',
+  surface2: '--surface-solid',
+  border: '--border',
+  text: '--text',
+  textMuted: '--text-muted',
+  accent: '--accent',
+  accentDark: '--accent-dark',
+};
+const PROFILE_THEME_LIGHT = {
+  bg: '#eef2ff',
+  surface: '#ffffffcc',
+  surface2: '#ffffff',
+  border: '#c7d2fe',
+  text: '#111827',
+  textMuted: '#64748b',
+  accent: '#0f766e',
+  accentDark: '#115e59',
+};
+const PROFILE_THEME_DARK = {
+  bg: '#0b1020',
+  surface: '#151a2fcc',
+  surface2: '#151a2f',
+  border: '#334155',
+  text: '#f9fafb',
+  textMuted: '#9ca3af',
+  accent: '#0f766e',
+  accentDark: '#115e59',
+};
+
 let state = { profiles: [] };
 let syncLoggedIn = false;
 let syncLoggedUser = '';
+let activeProfileId = null;
 
 function normalizeGridColumns(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -89,6 +132,75 @@ function setProfileGridColumns(profile, value) {
     props.grid_columns = normalized;
   }
   profile.properties = props;
+}
+
+function isHexColour(value) {
+  return typeof value === 'string' && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(value);
+}
+
+function normalizeProfileThemeMode(value) {
+  if (!value || typeof value !== 'string') return PROFILE_THEME_MODE_AUTO;
+  const mode = value.toLowerCase();
+  return PROFILE_THEME_MODES.has(mode) ? mode : PROFILE_THEME_MODE_AUTO;
+}
+
+function normalizeProfileThemePalette(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const palette = {};
+  for (const key of PROFILE_THEME_COLOUR_KEYS) {
+    const colour = value[key];
+    if (isHexColour(colour)) palette[key] = colour;
+  }
+  return palette;
+}
+
+function getProfileTheme(profile) {
+  const props = getProfileProperties(profile);
+  return {
+    mode: normalizeProfileThemeMode(props.color_scheme_mode),
+    custom: normalizeProfileThemePalette(props.color_scheme),
+  };
+}
+
+function setProfileTheme(profile, mode, customPalette) {
+  const props = getProfileProperties(profile);
+  props.color_scheme_mode = normalizeProfileThemeMode(mode);
+  const custom = normalizeProfileThemePalette(customPalette);
+  if (Object.keys(custom).length > 0) {
+    props.color_scheme = custom;
+  } else {
+    delete props.color_scheme;
+  }
+  profile.properties = props;
+}
+
+function getResolvedProfileTheme(profile) {
+  const theme = getProfileTheme(profile);
+  if (theme.mode === PROFILE_THEME_MODE_LIGHT) return PROFILE_THEME_LIGHT;
+  if (theme.mode === PROFILE_THEME_MODE_DARK) return PROFILE_THEME_DARK;
+  if (theme.mode === PROFILE_THEME_MODE_CUSTOM && Object.keys(theme.custom).length > 0) {
+    return theme.custom;
+  }
+  return null;
+}
+
+function getActiveProfile() {
+  return state.profiles.find(profile => profile.id === activeProfileId) || null;
+}
+
+function applyProfileTheme(profile) {
+  const palette = getResolvedProfileTheme(profile);
+  for (const [key, cssVar] of Object.entries(PROFILE_THEME_VAR_MAP)) {
+    if (palette && isHexColour(palette[key])) {
+      document.documentElement.style.setProperty(cssVar, palette[key]);
+    } else {
+      document.documentElement.style.removeProperty(cssVar);
+    }
+  }
+}
+
+function applyActiveProfileTheme() {
+  applyProfileTheme(getActiveProfile());
 }
 
 function normalizeSplashProvider(value) {
@@ -520,6 +632,7 @@ async function showSyncConflictDialog(trueConflict) {
 document.addEventListener('DOMContentLoaded', async () => {
   const stored = await chromeGet([
     STORAGE_KEY_STATE,
+    STORAGE_KEY_ACTIVE,
     STORAGE_KEY_OPEN_IN_TAB,
     STORAGE_KEY_SYNC_MODE,
     STORAGE_KEY_SYNC_SERVER_URL,
@@ -542,6 +655,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   ]);
 
   state = stored[STORAGE_KEY_STATE] || { profiles: [] };
+  activeProfileId = stored[STORAGE_KEY_ACTIVE] || null;
   document.getElementById('pref-new-tab').checked = stored[STORAGE_KEY_OPEN_IN_TAB] ?? false;
   document.getElementById('sync-mode').value = stored[STORAGE_KEY_SYNC_MODE] || 'local';
   document.getElementById('sync-server-url').value = stored[STORAGE_KEY_SYNC_SERVER_URL] || '';
@@ -576,6 +690,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateSubtitle();
   updateLoginStateUi();
 
+  applyActiveProfileTheme();
   renderProfiles();
 });
 
@@ -621,8 +736,85 @@ function renderProfiles() {
       setProfileGridColumns(profile, gridSelect.value);
       await saveState();
       renderProfiles();
+      applyActiveProfileTheme();
     });
     gridWrap.appendChild(gridSelect);
+
+    const theme = getProfileTheme(profile);
+
+    const themeWrap = document.createElement('label');
+    themeWrap.className = 'item-theme-setting';
+    themeWrap.textContent = 'Theme';
+    const themeSelect = document.createElement('select');
+    themeSelect.className = 'item-theme-select';
+    const themeOptions = [
+      { value: PROFILE_THEME_MODE_AUTO, label: 'Auto' },
+      { value: PROFILE_THEME_MODE_LIGHT, label: 'Light' },
+      { value: PROFILE_THEME_MODE_DARK, label: 'Dark' },
+      { value: PROFILE_THEME_MODE_CUSTOM, label: 'Custom' },
+    ];
+    for (const item of themeOptions) {
+      const opt = document.createElement('option');
+      opt.value = item.value;
+      opt.textContent = item.label;
+      themeSelect.appendChild(opt);
+    }
+    themeSelect.value = theme.mode;
+    themeSelect.addEventListener('change', async () => {
+      const current = getProfileTheme(profile);
+      setProfileTheme(profile, themeSelect.value, current.custom);
+      await saveState();
+      renderProfiles();
+      applyActiveProfileTheme();
+    });
+    themeWrap.appendChild(themeSelect);
+
+    const settings = document.createElement('div');
+    settings.className = 'item-settings';
+    settings.appendChild(gridWrap);
+    settings.appendChild(themeWrap);
+
+    if (theme.mode === PROFILE_THEME_MODE_CUSTOM) {
+      const palette = { ...PROFILE_THEME_LIGHT, ...theme.custom };
+      const paletteWrap = document.createElement('div');
+      paletteWrap.className = 'item-theme-palette';
+
+      const labelMap = {
+        bg: 'BG',
+        surface: 'Card',
+        surface2: 'Surface',
+        border: 'Border',
+        text: 'Text',
+        textMuted: 'Muted',
+        accent: 'Accent',
+        accentDark: 'Accent 2',
+      };
+
+      for (const key of PROFILE_THEME_COLOUR_KEYS) {
+        const swatchLabel = document.createElement('label');
+        swatchLabel.className = 'theme-colour';
+        swatchLabel.title = labelMap[key] || key;
+
+        const swatchText = document.createElement('span');
+        swatchText.textContent = labelMap[key] || key;
+
+        const swatchInput = document.createElement('input');
+        swatchInput.type = 'color';
+        swatchInput.value = isHexColour(palette[key]) ? palette[key].slice(0, 7) : '#000000';
+        swatchInput.addEventListener('change', async () => {
+          const current = getProfileTheme(profile);
+          const nextCustom = { ...current.custom, [key]: swatchInput.value };
+          setProfileTheme(profile, PROFILE_THEME_MODE_CUSTOM, nextCustom);
+          await saveState();
+          applyActiveProfileTheme();
+        });
+
+        swatchLabel.appendChild(swatchText);
+        swatchLabel.appendChild(swatchInput);
+        paletteWrap.appendChild(swatchLabel);
+      }
+      settings.appendChild(paletteWrap);
+    }
 
     const actions = document.createElement('div');
     actions.className = 'item-actions';
@@ -640,7 +832,7 @@ function renderProfiles() {
     actions.appendChild(renameBtn);
     actions.appendChild(deleteBtn);
     li.appendChild(name);
-    li.appendChild(gridWrap);
+    li.appendChild(settings);
     li.appendChild(actions);
     list.appendChild(li);
   }
@@ -652,6 +844,7 @@ async function renameProfile(profile) {
   profile.name = name.trim();
   await saveState();
   renderProfiles();
+  applyActiveProfileTheme();
 }
 
 async function deleteProfile(profile) {
@@ -659,10 +852,12 @@ async function deleteProfile(profile) {
   const activeId = (await chromeGet([STORAGE_KEY_ACTIVE]))[STORAGE_KEY_ACTIVE];
   state.profiles = state.profiles.filter(p => p.id !== profile.id);
   if (activeId === profile.id) {
-    await chrome.storage.local.set({ [STORAGE_KEY_ACTIVE]: state.profiles[0]?.id ?? null });
+    activeProfileId = state.profiles[0]?.id ?? null;
+    await chrome.storage.local.set({ [STORAGE_KEY_ACTIVE]: activeProfileId });
   }
   await saveState();
   renderProfiles();
+  applyActiveProfileTheme();
 }
 
 async function addProfile() {
@@ -683,13 +878,16 @@ async function addProfile() {
   input.value = '';
   await saveState();
   renderProfiles();
+  applyActiveProfileTheme();
 }
 
 async function clearLocal() {
   if (!confirm('Clear all locally cached dial data from this browser?')) return;
   await chrome.storage.local.remove([STORAGE_KEY_STATE, STORAGE_KEY_ACTIVE]);
   state = { profiles: [] };
+  activeProfileId = null;
   renderProfiles();
+  applyActiveProfileTheme();
   setBackupStatus('Local data cleared.', 'ok');
 }
 
@@ -917,9 +1115,11 @@ async function importJson(file) {
     state = normalizeState(parsed);
     await saveState();
     if (!(await chromeGet([STORAGE_KEY_ACTIVE]))[STORAGE_KEY_ACTIVE] && state.profiles[0]) {
-      await chrome.storage.local.set({ [STORAGE_KEY_ACTIVE]: state.profiles[0].id });
+      activeProfileId = state.profiles[0].id;
+      await chrome.storage.local.set({ [STORAGE_KEY_ACTIVE]: activeProfileId });
     }
     renderProfiles();
+    applyActiveProfileTheme();
     setBackupStatus('Backup imported.', 'ok');
   } catch (err) {
     setBackupStatus(`Import failed: ${err.message}`, 'err');
@@ -1242,14 +1442,16 @@ function updateSubtitle() {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 async function saveState() {
+  const stateSnapshot = cloneStateForSync(state);
+  await chrome.storage.local.set({ [STORAGE_KEY_STATE]: stateSnapshot });
+
   const syncConfig = await getSyncConfig();
   if (syncConfig.mode === 'server' && syncConfig.serverUrl && syncConfig.apiKey && syncConfig.username && syncConfig.password) {
     try {
       const syncedAt = Date.now();
-      const latestState = await getLatestLocalStateForSync();
       const settingsPayload = await buildSyncSettingsPayload();
-      const profilesPayload = buildServerProfilesPayload(latestState);
-      await pushStateToServer(syncConfig, latestState, settingsPayload);
+      const profilesPayload = buildServerProfilesPayload(stateSnapshot);
+      await pushStateToServer(syncConfig, stateSnapshot, settingsPayload);
       await saveLastSyncedSnapshotHash(buildSyncPayloadHash(profilesPayload, settingsPayload));
       await recordLastSyncSuccess(syncedAt);
       setSyncStatus(buildSyncSuccessMessage('Sync completed', syncedAt), 'ok');
@@ -1257,7 +1459,13 @@ async function saveState() {
       setSyncStatus(`Sync failed: ${err.message}`, 'err');
     }
   }
-  await chrome.storage.local.set({ [STORAGE_KEY_STATE]: state });
+}
+
+function cloneStateForSync(value) {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value));
 }
 
 async function getSyncConfig() {
@@ -1281,7 +1489,6 @@ async function getLatestLocalStateForSync() {
   const stored = await chromeGet([STORAGE_KEY_STATE]);
   const latest = stored[STORAGE_KEY_STATE];
   if (latest && typeof latest === 'object' && Array.isArray(latest.profiles)) {
-    state = latest;
     return latest;
   }
   return state;
@@ -1540,6 +1747,19 @@ function readFileAsDataUrl(file) {
 async function chromeGet(keys) {
   return new Promise(resolve => chrome.storage.local.get(keys, resolve));
 }
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if (changes[STORAGE_KEY_STATE]) {
+    state = changes[STORAGE_KEY_STATE].newValue || { profiles: [] };
+    renderProfiles();
+    applyActiveProfileTheme();
+  }
+  if (changes[STORAGE_KEY_ACTIVE]) {
+    activeProfileId = changes[STORAGE_KEY_ACTIVE].newValue || null;
+    applyActiveProfileTheme();
+  }
+});
 
 // ─── Event wiring ─────────────────────────────────────────────────────────────
 document.getElementById('btn-add-profile').addEventListener('click', addProfile);

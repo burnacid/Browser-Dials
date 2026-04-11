@@ -5,6 +5,51 @@ const { v4: uuidv4 } = require('uuid');
 const db       = require('../db');
 
 const router = express.Router();
+const PROFILE_THEME_MODES = new Set(['auto', 'light', 'dark', 'custom']);
+const PROFILE_THEME_KEYS = new Set(['bg', 'surface', 'surface2', 'border', 'text', 'textMuted', 'accent', 'accentDark']);
+
+function isHexColour(value) {
+  return typeof value === 'string' && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(value);
+}
+
+function sanitizeProfileProperties(input, { defaultThemeMode = false } = {}) {
+  const next = (input && typeof input === 'object' && !Array.isArray(input)) ? { ...input } : {};
+
+  if (next.color_scheme_mode !== undefined) {
+    if (typeof next.color_scheme_mode !== 'string') {
+      return { error: 'color_scheme_mode must be a string' };
+    }
+    const mode = next.color_scheme_mode.toLowerCase();
+    if (!PROFILE_THEME_MODES.has(mode)) {
+      return { error: 'color_scheme_mode must be one of: auto, light, dark, custom' };
+    }
+    next.color_scheme_mode = mode;
+  } else if (defaultThemeMode) {
+    next.color_scheme_mode = 'auto';
+  }
+
+  if (next.color_scheme !== undefined) {
+    if (!next.color_scheme || typeof next.color_scheme !== 'object' || Array.isArray(next.color_scheme)) {
+      return { error: 'color_scheme must be an object' };
+    }
+    const scheme = {};
+    for (const key of Object.keys(next.color_scheme)) {
+      if (!PROFILE_THEME_KEYS.has(key)) continue;
+      const colour = next.color_scheme[key];
+      if (!isHexColour(colour)) {
+        return { error: `color_scheme.${key} must be a hex color` };
+      }
+      scheme[key] = colour;
+    }
+    if (Object.keys(scheme).length > 0) {
+      next.color_scheme = scheme;
+    } else {
+      delete next.color_scheme;
+    }
+  }
+
+  return { properties: next };
+}
 
 // ─── List profiles ───────────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
@@ -49,6 +94,12 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'properties_json must be valid JSON object' });
     }
   }
+
+  const sanitized = sanitizeProfileProperties(profileProperties, { defaultThemeMode: true });
+  if (sanitized.error) {
+    return res.status(400).json({ error: sanitized.error });
+  }
+  profileProperties = sanitized.properties;
 
   try {
     await db.execute(
@@ -113,6 +164,13 @@ router.put('/:id', async (req, res) => {
         return res.status(400).json({ error: 'properties_json must be valid JSON object' });
       }
     }
+
+    const sanitized = sanitizeProfileProperties(profileProperties);
+    if (sanitized.error) {
+      return res.status(400).json({ error: sanitized.error });
+    }
+    profileProperties = sanitized.properties;
+
     fields.push('properties_json = ?');
     values.push(JSON.stringify(profileProperties));
   }

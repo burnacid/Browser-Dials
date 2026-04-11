@@ -99,6 +99,48 @@ const renderCache = {
   dialsKey: '',
 };
 
+const PROFILE_THEME_MODE_AUTO = 'auto';
+const PROFILE_THEME_MODE_LIGHT = 'light';
+const PROFILE_THEME_MODE_DARK = 'dark';
+const PROFILE_THEME_MODE_CUSTOM = 'custom';
+const PROFILE_THEME_MODES = new Set([
+  PROFILE_THEME_MODE_AUTO,
+  PROFILE_THEME_MODE_LIGHT,
+  PROFILE_THEME_MODE_DARK,
+  PROFILE_THEME_MODE_CUSTOM,
+]);
+const PROFILE_THEME_COLOUR_KEYS = ['bg', 'surface', 'surface2', 'border', 'text', 'textMuted', 'accent', 'accentDark'];
+const PROFILE_THEME_VAR_MAP = {
+  bg: '--bg',
+  surface: '--surface',
+  surface2: '--surface-2',
+  border: '--border',
+  text: '--text',
+  textMuted: '--text-muted',
+  accent: '--accent',
+  accentDark: '--accent-dark',
+};
+const PROFILE_THEME_LIGHT = {
+  bg: '#edf4ff',
+  surface: '#ffffffc9',
+  surface2: '#eef3ff',
+  border: '#cdd8f3',
+  text: '#111827',
+  textMuted: '#64748b',
+  accent: '#0ea5a1',
+  accentDark: '#0f766e',
+};
+const PROFILE_THEME_DARK = {
+  bg: '#0a1020',
+  surface: '#151c31cc',
+  surface2: '#1d2740',
+  border: '#30415f',
+  text: '#f9fafb',
+  textMuted: '#9fb0c7',
+  accent: '#0ea5a1',
+  accentDark: '#0f766e',
+};
+
 function normalizeGridColumns(value) {
   if (value === null || value === undefined || value === '') return null;
   const n = Number(value);
@@ -137,6 +179,55 @@ function getProfileProperties(profile) {
 
 function getProfileGridColumns(profile) {
   return normalizeGridColumns(getProfileProperties(profile).grid_columns);
+}
+
+function isHexColour(value) {
+  return typeof value === 'string' && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(value);
+}
+
+function normalizeProfileThemeMode(value) {
+  if (!value || typeof value !== 'string') return PROFILE_THEME_MODE_AUTO;
+  const mode = value.toLowerCase();
+  return PROFILE_THEME_MODES.has(mode) ? mode : PROFILE_THEME_MODE_AUTO;
+}
+
+function normalizeProfileThemePalette(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const palette = {};
+  for (const key of PROFILE_THEME_COLOUR_KEYS) {
+    const colour = value[key];
+    if (isHexColour(colour)) palette[key] = colour;
+  }
+  return palette;
+}
+
+function getProfileTheme(profile) {
+  const props = getProfileProperties(profile);
+  return {
+    mode: normalizeProfileThemeMode(props.color_scheme_mode),
+    custom: normalizeProfileThemePalette(props.color_scheme),
+  };
+}
+
+function resolveProfileThemePalette(profile) {
+  const theme = getProfileTheme(profile);
+  if (theme.mode === PROFILE_THEME_MODE_LIGHT) return PROFILE_THEME_LIGHT;
+  if (theme.mode === PROFILE_THEME_MODE_DARK) return PROFILE_THEME_DARK;
+  if (theme.mode === PROFILE_THEME_MODE_CUSTOM && Object.keys(theme.custom).length > 0) {
+    return theme.custom;
+  }
+  return null;
+}
+
+function applyProfileTheme(profile) {
+  const palette = resolveProfileThemePalette(profile);
+  for (const [key, cssVar] of Object.entries(PROFILE_THEME_VAR_MAP)) {
+    if (palette && isHexColour(palette[key])) {
+      document.documentElement.style.setProperty(cssVar, palette[key]);
+    } else {
+      document.documentElement.style.removeProperty(cssVar);
+    }
+  }
 }
 
 function buildSyncSettingsPayload() {
@@ -319,6 +410,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Listen for local setting/state changes
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
+  if (changes[STORAGE_KEY_ACTIVE]) {
+    activeProfileId = changes[STORAGE_KEY_ACTIVE].newValue || null;
+    renderAll();
+  }
   if (changes[STORAGE_KEY_STATE]) {
     state = changes[STORAGE_KEY_STATE].newValue || { profiles: [] };
     if (!state.profiles.find(p => p.id === activeProfileId)) {
@@ -402,6 +497,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 // ─── Render ───────────────────────────────────────────────────────────────────
 function renderAll() {
+  applyProfileTheme(getActiveProfile());
   renderProfileTabs();
   renderDials();
 }
@@ -619,14 +715,7 @@ function buildIcon(dial) {
   if (dial.icon_data) {
     return buildImgIcon(dial.icon_data, dial.title || dial.url, dial.icon_bg);
   }
-  // Try favicon
-  const faviconSrc = faviconUrl(dial.url);
-  const img = buildImgIcon(faviconSrc, dial.title || dial.url, dial.icon_bg);
-  img.addEventListener('error', () => {
-    const avatar = buildAvatar(dial.title || hostname(dial.url));
-    img.replaceWith(avatar);
-  }, { once: true });
-  return img;
+  return buildAvatar(dial.title || hostname(dial.url));
 }
 
 function buildImgIcon(src, alt, bgColor = null) {
@@ -685,16 +774,17 @@ function buildFolderIcon(dial) {
     const cell = document.createElement('div');
     cell.className = 'dial-card__folder-cell';
 
-    const src = item.icon_data || faviconUrl(item.url);
-    const img = document.createElement('img');
-    img.className = 'dial-card__folder-cell-img';
-    img.src = src;
-    img.alt = item.title || item.url || 'Folder item';
-    if (item.icon_bg) {
-      img.classList.add('dial-card__folder-cell-img--with-bg');
-      img.style.backgroundColor = item.icon_bg;
-    }
-    img.addEventListener('error', () => {
+    if (item.icon_data) {
+      const img = document.createElement('img');
+      img.className = 'dial-card__folder-cell-img';
+      img.src = item.icon_data;
+      img.alt = item.title || item.url || 'Folder item';
+      if (item.icon_bg) {
+        img.classList.add('dial-card__folder-cell-img--with-bg');
+        img.style.backgroundColor = item.icon_bg;
+      }
+      cell.appendChild(img);
+    } else {
       const letterEl = document.createElement('div');
       letterEl.className = 'dial-card__folder-cell-letter';
       const letter = ((item.title || hostname(item.url)) || '?')[0].toUpperCase();
@@ -705,10 +795,8 @@ function buildFolderIcon(dial) {
         const code = letter.charCodeAt(0);
         letterEl.style.background = AVATAR_COLOURS[code % AVATAR_COLOURS.length];
       }
-      img.replaceWith(letterEl);
-    }, { once: true });
-
-    cell.appendChild(img);
+      cell.appendChild(letterEl);
+    }
     container.appendChild(cell);
   });
 
@@ -1056,23 +1144,23 @@ function renderFolderItems() {
     card.draggable = true;
 
     // Icon
-    const iconSrc = item.icon_data || faviconUrl(item.url);
-    const img = buildImgIcon(iconSrc, item.title || item.url, item.icon_bg || null);
-    img.className = 'folder-tile__icon' + (item.icon_bg ? ' folder-tile__icon--with-bg' : '');
-    img.addEventListener('error', () => {
-      const av = document.createElement('div');
-      av.className = 'folder-tile__avatar';
+    let iconEl;
+    if (item.icon_data) {
+      iconEl = buildImgIcon(item.icon_data, item.title || item.url, item.icon_bg || null);
+      iconEl.className = 'folder-tile__icon' + (item.icon_bg ? ' folder-tile__icon--with-bg' : '');
+    } else {
+      iconEl = document.createElement('div');
+      iconEl.className = 'folder-tile__avatar';
       const letter = ((item.title || hostname(item.url)) || '?')[0].toUpperCase();
-      av.textContent = letter;
+      iconEl.textContent = letter;
       if (item.icon_bg) {
-        av.style.background = item.icon_bg;
+        iconEl.style.background = item.icon_bg;
       } else {
         const code = letter.charCodeAt(0);
-        av.style.background = AVATAR_COLOURS[code % AVATAR_COLOURS.length];
+        iconEl.style.background = AVATAR_COLOURS[code % AVATAR_COLOURS.length];
       }
-      img.replaceWith(av);
-    }, { once: true });
-    card.appendChild(img);
+    }
+    card.appendChild(iconEl);
 
     // Title
     const titleEl = document.createElement('span');
@@ -1516,14 +1604,17 @@ async function saveDial() {
         // null  → no change; ''    → explicitly removed; string → new image
         if (iconDataForSave === '') item.icon_data = null;
         else if (iconDataForSave !== null) item.icon_data = iconDataForSave;
+        // Auto-fetch favicon once if still no icon
+        if (!item.icon_data) item.icon_data = await fetchFaviconAsDataUrl(cleanUrl);
       }
     } else {
-      // Add new folder item
+      // Add new folder item — auto-fetch favicon if no icon was provided
+      const autoFavicon = iconDataForSave ? null : await fetchFaviconAsDataUrl(cleanUrl);
       folder.items.push({
         id:        uuid(),
         title,
         url:       cleanUrl,
-        icon_data: iconDataForSave,
+        icon_data: iconDataForSave || autoFavicon,
         icon_bg:   iconBgColor,
       });
     }
@@ -1603,6 +1694,15 @@ async function saveDial() {
       const dial = profileItem.dials.find(d => d.id === dialIdForIcon);
       if (dial) {
         dial.icon_data = iconDataForSave;
+        break;
+      }
+    }
+  } else if (iconDataForSave === null && !folderMode && dialIdForIcon && cleanUrl) {
+    // No icon manually set – auto-fetch favicon once on save
+    for (const profileItem of state.profiles) {
+      const dial = profileItem.dials.find(d => d.id === dialIdForIcon);
+      if (dial && !dial.icon_data) {
+        dial.icon_data = await fetchFaviconAsDataUrl(cleanUrl);
         break;
       }
     }
@@ -2115,6 +2215,28 @@ function hostname(url) {
 
 function faviconUrl(url) {
   try { return new URL(url).origin + '/favicon.ico'; } catch { return ''; }
+}
+
+async function fetchFaviconAsDataUrl(url) {
+  try {
+    const favUrl = faviconUrl(url);
+    if (!favUrl) return null;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(favUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    if (!blob.type.startsWith('image/')) return null;
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
 }
 
 function uuid() {
