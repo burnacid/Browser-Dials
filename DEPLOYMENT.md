@@ -1,8 +1,39 @@
 # Browser Dials Server - Docker Deployment Guide
 
-## What's Been Created
+## Quick Start with Published Image
 
-Your Browser Dials server is now fully containerized with Docker. Here's what was set up:
+The easiest way to get started is using example deployment configurations that use the published Docker image `burnacid/browser-dials-server:latest`.
+
+### For Development/Testing (Simple)
+
+```bash
+# Linux/macOS
+./examples/quickstart.sh simple
+
+# Windows
+.\examples\quickstart.ps1 -Mode simple
+
+# Then:
+nano .env          # Edit your passwords
+docker-compose up -d
+```
+
+### For Production (With SSL & Reverse Proxy)
+
+```bash
+# Linux/macOS
+./examples/quickstart.sh production
+
+# Windows
+.\examples\quickstart.ps1 -Mode production
+
+# Then:
+nano .env               # Generate & set secrets
+certbot certonly ...    # Get SSL certs
+docker-compose up -d
+```
+
+See [examples/README.md](examples/README.md) for complete deployment scenarios and configurations.
 
 ### Files Created
 

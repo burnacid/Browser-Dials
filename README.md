@@ -60,26 +60,43 @@ Passwords are stored as PBKDF2-SHA256 hashes (120 000 iterations).
 
 **Prerequisites:** Docker 20+, Docker Compose 2.0+
 
+Choose a deployment option based on your needs:
+
+#### Quick Start (Local Development)
+
 ```bash
-# 1. Copy the environment template
-cp .env.docker .env
-
-# 2. Edit .env — set secure values for DB_PASS, DB_ROOT_PASS, and API_KEY
-#    Generate an API key:
-#    Linux/macOS:  openssl rand -base64 32
-#    PowerShell:   -join ((1..32) | % { '{0:X2}' -f (Get-Random -Max 256) })
-
-# 3. Build and start
-docker-compose up -d --build
-
-# 4. Create your first user
-docker exec browser-dials-server node scripts/create-user.js <username> <password>
-
-# 5. View logs
-docker-compose logs -f
+cp examples/docker-compose.simple.yml docker-compose.yml
+cp examples/.env.simple .env
+# Edit .env with your passwords
+docker-compose up -d
+docker-compose exec server node scripts/create-user.js admin password
 ```
 
+#### Production Deployment
+
+```bash
+cp examples/docker-compose.production.yml docker-compose.yml
+cp examples/.env.production .env
+# Generate secure secrets and edit .env
+openssl rand -base64 32
+# Set up SSL certificates, then:
+docker-compose up -d
+docker-compose exec server node scripts/create-user.js admin password
+```
+
+See [examples/README.md](examples/README.md) for detailed deployment scenarios and configurations.
+
 The server listens on **port 3737** by default (`SERVER_PORT` in `.env` to override).
+
+#### Building from Source (Development)
+
+To build and run the image locally from the Dockerfile:
+
+```bash
+cp .env.docker .env
+# Edit .env with your values
+docker-compose up -d --build
+```
 
 ### Running without Docker
 
@@ -147,6 +164,24 @@ npm run icons
 ```
 
 Requires the `canvas` package. Generates all required icon sizes into `extension/icons/`.
+
+### Package the Extension
+
+Use the PowerShell packaging script to build a release zip with the extension files at the archive root and the packaged `manifest.json` version set correctly:
+
+```powershell
+.\package-extension.ps1
+```
+
+The packaged artifact is written to `dist/browser-dials-extension-<version>.zip`.
+
+### Publish a Release
+
+```powershell
+.\publish-server.ps1
+```
+
+This now packages the extension first, then publishes the server Docker image tags for the same version.
 
 ---
 

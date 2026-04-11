@@ -1,0 +1,74 @@
+# Simple Browser Dials Server Deployment
+# Uses published image: burnacid/browser-dials-server:latest
+# Perfect for: Quick testing, local development, small single-user deployments
+#
+# Usage:
+#   1. Copy this file to your deployment directory: cp docker-compose.simple.yml docker-compose.yml
+#   2. Create .env from .env.simple: cp examples/.env.simple .env
+#   3. Edit .env with your desired passwords
+#   4. Run: docker-compose up -d
+#   5. Create first user: docker-compose exec server node scripts/create-user.js admin password
+
+version: '3.8'
+
+services:
+  db:
+    image: mariadb:11.4-alpine
+    container_name: browser-dials-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASS:-rootchangeme}
+      MARIADB_DATABASE: ${DB_NAME:-browser_dials}
+      MARIADB_USER: ${DB_USER:-browser_dials}
+      MARIADB_PASSWORD: ${DB_PASS:-changeme}
+    ports:
+      - "3306:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    networks:
+      - browser-dials-net
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect"]
+      timeout: 5s
+      retries: 5
+      interval: 10s
+
+  server:
+    image: burnacid/browser-dials-server:latest
+    container_name: browser-dials-server
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3737
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-browser_dials}
+      DB_PASS: ${DB_PASS:-changeme}
+      DB_NAME: ${DB_NAME:-browser_dials}
+      API_KEY: ${API_KEY:-change-me-to-a-long-random-secret}
+    ports:
+      - "${SERVER_PORT:-3737}:3737"
+    volumes:
+      - uploads:/app/uploads
+    networks:
+      - browser-dials-net
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3737/api/sync"]
+      timeout: 5s
+      retries: 5
+      interval: 30s
+    env_file: .env
+
+volumes:
+  db-data:
+    driver: local
+  uploads:
+    driver: local
+
+networks:
+  browser-dials-net:
+    driver: bridge
