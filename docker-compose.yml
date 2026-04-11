@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # MariaDB/MySQL Database
+  db:
+    image: mariadb:11.4-alpine
+    container_name: browser-dials-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:-rootchangeme}
+      MYSQL_DATABASE: ${DB_NAME:-browser_dials}
+      MYSQL_USER: ${DB_USER:-browser_dials}
+      MYSQL_PASSWORD: ${DB_PASS:-changeme}
+      MYSQL_INITDB_SKIP_TZINFO: "yes"
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      # Database persistence
+      - db-data:/var/lib/mysql
+      # Initialize database schema
+      - ./server/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    networks:
+      - browser-dials-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+      interval: 10s
+
+  # Node.js Server
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: browser-dials-server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3737
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-browser_dials}
+      DB_PASS: ${DB_PASS:-changeme}
+      DB_NAME: ${DB_NAME:-browser_dials}
+      API_KEY: ${API_KEY:-change-me-to-a-long-random-secret}
+    ports:
+      - "${SERVER_PORT:-3737}:3737"
+    volumes:
+      # Uploads persistence
+      - uploads:/app/uploads
+    networks:
+      - browser-dials-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3737/api/sync"]
+      timeout: 5s
+      retries: 5
+      interval: 30s
+
+volumes:
+  db-data:
+    driver: local
+  uploads:
+    driver: local
+
+networks:
+  browser-dials-net:
+    driver: bridge

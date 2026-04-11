@@ -4,6 +4,8 @@
 const STORAGE_KEY_STATE       = 'dials_state';      // { profiles: […] }
 const STORAGE_KEY_ACTIVE      = 'active_profile_id';
 const STORAGE_KEY_OPEN_IN_TAB = 'open_in_new_tab';
+const STORAGE_KEY_SEARCH_ENABLED = 'search_enabled';
+const STORAGE_KEY_SEARCH_ENGINE  = 'search_engine';
 const STORAGE_KEY_SPLASH_DATA = 'splash_bg_data';
 const STORAGE_KEY_SPLASH_ON   = 'splash_bg_enabled';
 const STORAGE_KEY_SPLASH_PUBLIC_ON = 'splash_public_enabled';
@@ -21,6 +23,8 @@ const AVATAR_COLOURS = [
 let state = { profiles: [] };  // { profiles: [{ id, name, position, dials: [] }] }
 let activeProfileId = null;
 let openInNewTab = false;
+let searchEnabled = true;
+let searchEngine = 'google';
 let splashData = '';
 let splashOn   = false;
 let splashPublicOn = false;
@@ -31,6 +35,11 @@ let splashRefreshToken = 0;
 // Modal edit context
 let editingDialId  = null;   // null → adding new dial
 let pendingIconData = null;  // data URL for icon selected in the modal
+let openFolderId = null;
+
+function isFolder(dial) {
+  return dial?.type === 'folder';
+}
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -38,6 +47,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     STORAGE_KEY_STATE,
     STORAGE_KEY_ACTIVE,
     STORAGE_KEY_OPEN_IN_TAB,
+    STORAGE_KEY_SEARCH_ENABLED,
+    STORAGE_KEY_SEARCH_ENGINE,
     STORAGE_KEY_SPLASH_DATA,
     STORAGE_KEY_SPLASH_ON,
     STORAGE_KEY_SPLASH_PUBLIC_ON,
@@ -49,6 +60,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   state         = stored[STORAGE_KEY_STATE]       || { profiles: [] };
   activeProfileId = stored[STORAGE_KEY_ACTIVE]    || null;
   openInNewTab  = stored[STORAGE_KEY_OPEN_IN_TAB] ?? false;
+  searchEnabled = stored[STORAGE_KEY_SEARCH_ENABLED] ?? true;
+  searchEngine  = stored[STORAGE_KEY_SEARCH_ENGINE] || 'google';
   splashData    = stored[STORAGE_KEY_SPLASH_DATA] || '';
   splashOn      = stored[STORAGE_KEY_SPLASH_ON] ?? false;
   splashPublicOn = stored[STORAGE_KEY_SPLASH_PUBLIC_ON] ?? false;
@@ -63,6 +76,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   renderAll();
   applySplashBackground();
+  applySearchUi();
   setSyncStatus('Local only');
 });
 
@@ -78,6 +92,13 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (changes[STORAGE_KEY_OPEN_IN_TAB]) {
     openInNewTab = changes[STORAGE_KEY_OPEN_IN_TAB].newValue ?? false;
+  }
+  if (changes[STORAGE_KEY_SEARCH_ENABLED]) {
+    searchEnabled = changes[STORAGE_KEY_SEARCH_ENABLED].newValue ?? true;
+    applySearchUi();
+  }
+  if (changes[STORAGE_KEY_SEARCH_ENGINE]) {
+    searchEngine = changes[STORAGE_KEY_SEARCH_ENGINE].newValue || 'google';
   }
   if (changes[STORAGE_KEY_SPLASH_DATA]) {
     splashData = changes[STORAGE_KEY_SPLASH_DATA].newValue || '';
@@ -187,6 +208,7 @@ function buildDialCard(dial, allDials) {
   const card = document.createElement('div');
   card.className = 'dial-card';
   card.dataset.dialId = dial.id;
+  const folder = isFolder(dial);
 
   // Icon
   const iconEl = buildIcon(dial);
@@ -195,8 +217,16 @@ function buildDialCard(dial, allDials) {
   // Title
   const title = document.createElement('span');
   title.className = 'dial-card__title';
-  title.textContent = dial.title || hostname(dial.url);
+  title.textContent = dial.title || (folder ? 'Folder' : hostname(dial.url));
   card.appendChild(title);
+
+  if (folder) {
+    const meta = document.createElement('span');
+    meta.className = 'dial-card__meta';
+    const count = Array.isArray(dial.items) ? dial.items.length : 0;
+    meta.textContent = `${count} item${count === 1 ? '' : 's'}`;
+    card.appendChild(meta);
+  }
 
   // Right-click actions menu
   const actions = document.createElement('div');
@@ -252,6 +282,10 @@ function buildDialCard(dial, allDials) {
 
   // Navigate on click
   card.addEventListener('click', () => {
+    if (folder) {
+      openFolderModal(dial.id);
+      return;
+    }
     if (openInNewTab) {
       window.open(dial.url, '_blank', 'noopener,noreferrer');
     } else {
@@ -263,6 +297,12 @@ function buildDialCard(dial, allDials) {
 }
 
 function buildIcon(dial) {
+  if (isFolder(dial)) {
+    if (dial.icon_data) {
+      return buildImgIcon(dial.icon_data, dial.title || 'Folder');
+    }
+    return buildFolderIcon();
+  }
   if (dial.icon_data) {
     return buildImgIcon(dial.icon_data, dial.title || dial.url);
   }
@@ -295,10 +335,131 @@ function buildAvatar(label) {
   return el;
 }
 
+function buildFolderIcon() {
+  const el = document.createElement('div');
+  el.className = 'dial-card__avatar';
+  el.textContent = '📁';
+  el.style.background = '#0f766e';
+  return el;
+}
+
 function closeAllCardMenus() {
   document.querySelectorAll('.dial-card.context-open').forEach(card => {
     card.classList.remove('context-open');
   });
+}
+
+function getActiveProfile() {
+  return state.profiles.find(p => p.id === activeProfileId) || null;
+}
+
+function openFolderModal(folderId) {
+  openFolderId = folderId;
+  renderFolderItems();
+  document.getElementById('folder-modal-overlay').classList.remove('hidden');
+}
+
+function closeFolderModal() {
+  openFolderId = null;
+  document.getElementById('folder-modal-overlay').classList.add('hidden');
+}
+
+function renderFolderItems() {
+  const profile = getActiveProfile();
+  if (!profile) return;
+  const folder = profile.dials.find(d => d.id === openFolderId && isFolder(d));
+  if (!folder) return;
+
+  const items = Array.isArray(folder.items) ? folder.items : [];
+  document.getElementById('folder-modal-title').textContent = folder.title || 'Folder';
+
+  const root = document.getElementById('folder-items');
+  root.innerHTML = '';
+
+  if (items.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'folder-item';
+    empty.innerHTML = '<span class="folder-item__title">No links yet. Click "Add link".</span>';
+    root.appendChild(empty);
+    return;
+  }
+
+  items.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'folder-item';
+
+    const icon = document.createElement('img');
+    icon.className = 'folder-item__icon';
+    icon.src = item.icon_data || faviconUrl(item.url);
+    icon.alt = item.title || item.url;
+    icon.addEventListener('error', () => {
+      icon.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="28" height="28"%3E%3Crect width="28" height="28" rx="6" fill="%230f766e"/%3E%3Ctext x="14" y="19" text-anchor="middle" font-size="14" fill="white"%3E%3F%3C/text%3E%3C/svg%3E';
+    }, { once: true });
+
+    const title = document.createElement('span');
+    title.className = 'folder-item__title';
+    title.textContent = item.title || hostname(item.url);
+
+    const openBtn = document.createElement('button');
+    openBtn.className = 'folder-item__btn';
+    openBtn.textContent = 'Open';
+    openBtn.addEventListener('click', () => {
+      if (openInNewTab) {
+        window.open(item.url, '_blank', 'noopener,noreferrer');
+      } else {
+        window.location.href = item.url;
+      }
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'folder-item__btn';
+    delBtn.textContent = 'Delete';
+    delBtn.addEventListener('click', async () => {
+      folder.items = items.filter(i => i.id !== item.id);
+      await saveLocal();
+      renderFolderItems();
+      renderAll();
+    });
+
+    row.appendChild(icon);
+    row.appendChild(title);
+    row.appendChild(openBtn);
+    row.appendChild(delBtn);
+    root.appendChild(row);
+  });
+}
+
+async function addLinkToOpenFolder() {
+  const profile = getActiveProfile();
+  if (!profile) return;
+  const folder = profile.dials.find(d => d.id === openFolderId && isFolder(d));
+  if (!folder) return;
+
+  const rawUrl = prompt('Link URL (https://...)');
+  if (!rawUrl) return;
+
+  let cleanUrl;
+  try {
+    const u = new URL(rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('bad protocol');
+    cleanUrl = u.href;
+  } catch {
+    alert('Please provide a valid http/https URL.');
+    return;
+  }
+
+  const title = (prompt('Title (optional)') || '').trim();
+  if (!Array.isArray(folder.items)) folder.items = [];
+  folder.items.push({
+    id: uuid(),
+    title,
+    url: cleanUrl,
+    icon_data: null,
+  });
+
+  await saveLocal();
+  renderFolderItems();
+  renderAll();
 }
 
 function applySplashBackground() {
@@ -386,10 +547,12 @@ function openAddModal() {
   document.getElementById('modal-title').textContent       = 'Add Dial';
   document.getElementById('modal-save').textContent        = 'Add';
   document.getElementById('modal-title-input').value       = '';
+  document.getElementById('modal-is-folder').checked       = false;
   document.getElementById('modal-url-input').value         = '';
   document.getElementById('modal-icon-input').value        = '';
   document.getElementById('modal-icon-preview').classList.add('hidden');
   document.getElementById('modal-icon-remove').classList.add('hidden');
+  updateDialModalTypeUi();
   document.getElementById('modal-overlay').classList.remove('hidden');
   document.getElementById('modal-url-input').focus();
 }
@@ -400,8 +563,10 @@ function openEditModal(dial) {
   document.getElementById('modal-title').textContent       = 'Edit Dial';
   document.getElementById('modal-save').textContent        = 'Save';
   document.getElementById('modal-title-input').value       = dial.title || '';
-  document.getElementById('modal-url-input').value         = dial.url   || '';
+  document.getElementById('modal-is-folder').checked       = isFolder(dial);
+  document.getElementById('modal-url-input').value         = dial.url || '';
   document.getElementById('modal-icon-input').value        = '';
+  updateDialModalTypeUi();
 
   const preview = document.getElementById('modal-icon-preview');
   const removeBtn = document.getElementById('modal-icon-remove');
@@ -425,22 +590,30 @@ function closeModal() {
   pendingIconData = null;
 }
 
+function updateDialModalTypeUi() {
+  const folderMode = document.getElementById('modal-is-folder').checked;
+  document.getElementById('modal-url-group').style.display = folderMode ? 'none' : 'block';
+}
+
 async function saveDial() {
   const titleEl = document.getElementById('modal-title-input');
   const urlEl   = document.getElementById('modal-url-input');
+  const folderMode = document.getElementById('modal-is-folder').checked;
   const title   = titleEl.value.trim();
   const rawUrl  = urlEl.value.trim();
 
-  if (!rawUrl) { urlEl.focus(); return; }
   let cleanUrl;
-  try {
-    const u = new URL(rawUrl.startsWith('http') ? rawUrl : 'https://' + rawUrl);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('bad protocol');
-    cleanUrl = u.href;
-  } catch {
-    urlEl.setCustomValidity('Enter a valid http/https URL');
-    urlEl.reportValidity();
-    return;
+  if (!folderMode) {
+    if (!rawUrl) { urlEl.focus(); return; }
+    try {
+      const u = new URL(rawUrl.startsWith('http') ? rawUrl : 'https://' + rawUrl);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('bad protocol');
+      cleanUrl = u.href;
+    } catch {
+      urlEl.setCustomValidity('Enter a valid http/https URL');
+      urlEl.reportValidity();
+      return;
+    }
   }
   urlEl.setCustomValidity('');
 
@@ -451,18 +624,29 @@ async function saveDial() {
     // Edit existing
     const dial = profile.dials.find(d => d.id === editingDialId);
     if (!dial) return;
+    dial.type = folderMode ? 'folder' : 'dial';
     dial.title = title;
-    dial.url   = cleanUrl;
+    if (folderMode) {
+      dial.url = '';
+      if (!Array.isArray(dial.items)) dial.items = [];
+    } else {
+      dial.url = cleanUrl;
+      delete dial.items;
+    }
   } else {
     // Add new
     const newDial = {
       id:        uuid(),
       profile_id: profile.id,
+      type:      folderMode ? 'folder' : 'dial',
       title,
-      url:       cleanUrl,
+      url:       folderMode ? '' : cleanUrl,
       position:  profile.dials.length,
       icon_data: null,
     };
+    if (folderMode) {
+      newDial.items = [];
+    }
     profile.dials.push(newDial);
     editingDialId = newDial.id;
   }
@@ -540,6 +724,26 @@ function setSyncStatus(msg, isError = false) {
   el.className   = isError ? 'error' : '';
 }
 
+function applySearchUi() {
+  const shell = document.getElementById('search-shell');
+  if (!shell) return;
+  shell.style.display = searchEnabled ? 'block' : 'none';
+}
+
+function getSearchTargetUrl(query) {
+  const q = encodeURIComponent(query.trim());
+  if (searchEngine === 'bing') {
+    return `https://www.bing.com/search?q=${q}`;
+  }
+  if (searchEngine === 'duckduckgo') {
+    return `https://duckduckgo.com/?q=${q}`;
+  }
+  if (searchEngine === 'brave') {
+    return `https://search.brave.com/search?q=${q}`;
+  }
+  return `https://www.google.com/search?q=${q}`;
+}
+
 function hostname(url) {
   try { return new URL(url).hostname; } catch { return url; }
 }
@@ -563,12 +767,26 @@ document.getElementById('btn-settings').addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
 
+document.getElementById('search-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const input = document.getElementById('search-input');
+  const query = input.value.trim();
+  if (!query) return;
+  const url = getSearchTargetUrl(query);
+  if (openInNewTab) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } else {
+    window.location.href = url;
+  }
+});
+
 // Dial modal
 document.getElementById('modal-cancel').addEventListener('click', closeModal);
 document.getElementById('modal-save').addEventListener('click', saveDial);
 document.getElementById('modal-overlay').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeModal();
 });
+document.getElementById('modal-is-folder').addEventListener('change', updateDialModalTypeUi);
 
 document.getElementById('modal-icon-input').addEventListener('change', e => {
   const file = e.target.files?.[0];
@@ -608,11 +826,23 @@ document.getElementById('profile-modal-overlay').addEventListener('click', e => 
   }
 });
 
+// Folder modal
+document.getElementById('folder-close').addEventListener('click', closeFolderModal);
+document.getElementById('folder-add-link').addEventListener('click', () => {
+  addLinkToOpenFolder();
+});
+document.getElementById('folder-modal-overlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) {
+    closeFolderModal();
+  }
+});
+
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     closeAllCardMenus();
     closeModal();
+    closeFolderModal();
     document.getElementById('profile-modal-overlay').classList.add('hidden');
   }
 });

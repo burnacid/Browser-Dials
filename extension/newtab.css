@@ -174,6 +174,52 @@ body.splash-enabled::after {
 }
 #sync-status.error { color: var(--danger); }
 
+#search-shell {
+  max-width: 840px;
+  margin: 14px auto 0;
+  padding: 0 18px;
+}
+
+#search-form {
+  display: flex;
+  gap: 10px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px;
+  box-shadow: var(--shadow);
+}
+
+#search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 15px;
+  outline: none;
+}
+
+#search-input::placeholder {
+  color: var(--text-muted);
+}
+
+#search-submit {
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  color: #fff;
+  padding: 8px 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#search-submit:hover {
+  filter: brightness(1.05);
+}
+
 /* ─── Dial grid ─────────────────────────────────────────────────────────────── */
 #dial-grid {
   display: grid;
@@ -239,6 +285,15 @@ body.splash-enabled::after {
   word-break: break-word;
   line-height: 1.3;
   max-width: 100%;
+}
+
+.dial-card__meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
 }
 
 /* Right-click menu with edit/delete buttons */
@@ -361,6 +416,18 @@ body.splash-enabled::after {
   margin-bottom: -8px;
 }
 
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.check-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
 .hint {
   font-weight: 400;
   font-size: 11px;
@@ -404,6 +471,57 @@ body.splash-enabled::after {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 4px;
+}
+
+.modal-actions--spread {
+  justify-content: space-between;
+}
+
+.folder-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.folder-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+}
+
+.folder-item__icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
+.folder-item__title {
+  flex: 1;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder-item__btn {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.folder-item__btn:hover {
+  background: var(--border);
 }
 
 /* ─── Buttons ────────────────────────────────────────────────────────────────── */

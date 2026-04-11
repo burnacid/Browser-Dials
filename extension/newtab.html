@@ -15,6 +15,13 @@
     <div id="sync-status" aria-live="polite"></div>
   </header>
 
+  <section id="search-shell" aria-label="Search">
+    <form id="search-form" autocomplete="off">
+      <input id="search-input" type="search" placeholder="Search the web" maxlength="200" />
+      <button id="search-submit" type="submit">Search</button>
+    </form>
+  </section>
+
   <!-- ── Dial grid ─────────────────────────────────────────────────────── -->
   <main id="dial-grid" role="main"></main>
 
@@ -26,8 +33,15 @@
       <label for="modal-title-input">Title</label>
       <input id="modal-title-input" type="text" maxlength="200" placeholder="My Site" autocomplete="off" />
 
-      <label for="modal-url-input">URL</label>
-      <input id="modal-url-input" type="url" maxlength="2048" placeholder="https://example.com" autocomplete="off" />
+      <label class="check-row" for="modal-is-folder">
+        <input id="modal-is-folder" type="checkbox" />
+        <span>Create as folder</span>
+      </label>
+
+      <div id="modal-url-group">
+        <label for="modal-url-input">URL</label>
+        <input id="modal-url-input" type="url" maxlength="2048" placeholder="https://example.com" autocomplete="off" />
+      </div>
 
       <label for="modal-icon-input">Custom icon <span class="hint">(optional, max 1 MB)</span></label>
       <div class="icon-preview-row">
@@ -55,6 +69,19 @@
       </div>
     </div>
   </div>
+
+  <!-- ── Folder contents modal ─────────────────────────────────────────── -->
+  <div id="folder-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="folder-modal-title">
+    <div class="modal">
+      <h2 id="folder-modal-title">Folder</h2>
+      <div id="folder-items" class="folder-items"></div>
+      <div class="modal-actions modal-actions--spread">
+        <button id="folder-add-link" type="button" class="btn-secondary">Add link</button>
+        <button id="folder-close" type="button" class="btn-primary">Close</button>
+      </div>
+    </div>
+  </div>
+
 
   <script src="newtab.js"></script>
 </body>

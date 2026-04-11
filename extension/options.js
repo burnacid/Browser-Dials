@@ -3,6 +3,8 @@
 const STORAGE_KEY_STATE       = 'dials_state';
 const STORAGE_KEY_ACTIVE      = 'active_profile_id';
 const STORAGE_KEY_OPEN_IN_TAB = 'open_in_new_tab';
+const STORAGE_KEY_SEARCH_ENABLED = 'search_enabled';
+const STORAGE_KEY_SEARCH_ENGINE  = 'search_engine';
 const STORAGE_KEY_SPLASH_DATA = 'splash_bg_data';
 const STORAGE_KEY_SPLASH_ON   = 'splash_bg_enabled';
 const STORAGE_KEY_SPLASH_PUBLIC_ON = 'splash_public_enabled';
@@ -17,6 +19,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const stored = await chromeGet([
     STORAGE_KEY_STATE,
     STORAGE_KEY_OPEN_IN_TAB,
+    STORAGE_KEY_SEARCH_ENABLED,
+    STORAGE_KEY_SEARCH_ENGINE,
     STORAGE_KEY_SPLASH_DATA,
     STORAGE_KEY_SPLASH_ON,
     STORAGE_KEY_SPLASH_PUBLIC_ON,
@@ -26,6 +30,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   state = stored[STORAGE_KEY_STATE] || { profiles: [] };
   document.getElementById('pref-new-tab').checked = stored[STORAGE_KEY_OPEN_IN_TAB] ?? false;
+  document.getElementById('pref-search-enabled').checked = stored[STORAGE_KEY_SEARCH_ENABLED] ?? true;
+  document.getElementById('pref-search-engine').value = stored[STORAGE_KEY_SEARCH_ENGINE] || 'google';
   document.getElementById('pref-splash-enabled').checked = stored[STORAGE_KEY_SPLASH_ON] ?? false;
   document.getElementById('pref-splash-public').checked = stored[STORAGE_KEY_SPLASH_PUBLIC_ON] ?? false;
   document.getElementById('splash-provider').value = stored[STORAGE_KEY_SPLASH_PROVIDER] || 'picsum';
@@ -38,6 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     splashPreview.classList.remove('hidden');
   }
 
+  updateSearchControlState();
   updateSplashControlState();
 
   renderProfiles();
@@ -173,10 +180,19 @@ function normalizeState(raw) {
       dials: dials.map((dial, dIdx) => ({
         id: String(dial.id || crypto.randomUUID()),
         profile_id: profileId,
+        type: dial.type === 'folder' ? 'folder' : 'dial',
         title: String(dial.title || ''),
-        url: String(dial.url || 'https://example.com'),
+        url: dial.type === 'folder' ? '' : String(dial.url || 'https://example.com'),
         position: Number.isInteger(dial.position) ? dial.position : dIdx,
         icon_data: typeof dial.icon_data === 'string' ? dial.icon_data : null,
+        items: dial.type === 'folder'
+          ? (Array.isArray(dial.items) ? dial.items : []).map(item => ({
+              id: String(item.id || crypto.randomUUID()),
+              title: String(item.title || ''),
+              url: String(item.url || 'https://example.com'),
+              icon_data: typeof item.icon_data === 'string' ? item.icon_data : null,
+            }))
+          : undefined,
       })),
     };
   });
@@ -186,6 +202,15 @@ function normalizeState(raw) {
 // ─── Preferences ─────────────────────────────────────────────────────────────
 document.getElementById('pref-new-tab').addEventListener('change', async e => {
   await chrome.storage.local.set({ [STORAGE_KEY_OPEN_IN_TAB]: e.target.checked });
+});
+
+document.getElementById('pref-search-enabled').addEventListener('change', async e => {
+  await chrome.storage.local.set({ [STORAGE_KEY_SEARCH_ENABLED]: e.target.checked });
+  updateSearchControlState();
+});
+
+document.getElementById('pref-search-engine').addEventListener('change', async e => {
+  await chrome.storage.local.set({ [STORAGE_KEY_SEARCH_ENGINE]: e.target.value });
 });
 
 document.getElementById('pref-splash-enabled').addEventListener('change', async e => {
@@ -236,6 +261,11 @@ async function clearSplashImage() {
 async function refreshPublicSplash() {
   await chrome.storage.local.set({ [STORAGE_KEY_SPLASH_REFRESH]: Date.now() });
   setSplashStatus('Requested a fresh public background.', 'ok');
+}
+
+function updateSearchControlState() {
+  const enabled = document.getElementById('pref-search-enabled').checked;
+  document.getElementById('pref-search-engine').disabled = !enabled;
 }
 
 function updateSplashControlState() {
