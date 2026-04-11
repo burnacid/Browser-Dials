@@ -304,7 +304,21 @@ button:disabled {
 }
 
 .btn-syncing {
-  animation: spin 1s linear infinite;
+  position: relative;
+  padding-left: 34px;
+}
+
+.btn-syncing::before {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-top-color: var(--accent);
+  position: absolute;
+  left: 12px;
+  top: calc(50% - 7px);
+  animation: spin 700ms linear infinite;
 }
 
 /* ─── Status labels ──────────────────────────────────────────────────────────── */

@@ -12,6 +12,7 @@
     <nav id="profile-tabs" role="tablist" aria-label="Profiles"></nav>
     <button id="btn-add-profile" title="Add profile" aria-label="Add profile">＋</button>
     <button id="btn-settings"   title="Settings"    aria-label="Open settings">⚙</button>
+    <button id="btn-sync-now"   title="Sync now"    aria-label="Sync now">↻</button>
     <div id="sync-status" aria-live="polite"></div>
   </header>
 
@@ -24,6 +25,8 @@
 
   <!-- ── Dial grid ─────────────────────────────────────────────────────── -->
   <main id="dial-grid" role="main"></main>
+
+  <div id="toast-host" aria-live="polite" aria-atomic="false"></div>
 
   <!-- ── Edit / Add dial modal ─────────────────────────────────────────── -->
   <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">

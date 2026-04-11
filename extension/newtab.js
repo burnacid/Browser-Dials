@@ -85,6 +85,19 @@ let folderDraggedItemId = null;
 let folderDragHoverItemId = null;
 let folderDragHoverMode = null;
 let folderDragDidMove = false;
+let toastTimeoutId = null;
+const modalFocusState = new Map();
+let syncStatusTickId = null;
+let syncStatusState = {
+  message: '',
+  tone: 'muted',
+  updatedAt: 0,
+};
+let topbarSyncInProgress = false;
+const renderCache = {
+  profileTabsKey: '',
+  dialsKey: '',
+};
 
 function normalizeGridColumns(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -263,13 +276,44 @@ document.addEventListener('DOMContentLoaded', async () => {
   splashPublicUrl = stored[STORAGE_KEY_SPLASH_PUBLIC_URL] || '';
   splashPublicLastFetch = Number(stored[STORAGE_KEY_SPLASH_PUBLIC_LAST_FETCH]) || 0;
 
-  await loadInitialState();
+  const hasSyncCredentials = syncMode === 'server'
+    && !!syncServerUrl
+    && !!syncApiKey
+    && !!syncUsername
+    && !!syncPassword;
+  const isSyncDue = hasSyncCredentials
+    && (!syncLastPullAt || (Date.now() - syncLastPullAt) >= SYNC_PULL_INTERVAL_MS);
 
   renderAll();
   void applySplashBackground();
   updatePublicSplashRefreshButton();
   applySearchUi();
-  setSyncStatus(syncMode === 'server' ? 'Server sync enabled' : 'Local only');
+  if (syncMode === 'server' && isSyncDue) {
+    setSyncStatus('Loaded cache, syncing...', false);
+    const previousPullAt = syncLastPullAt;
+    void loadInitialState()
+      .then(() => {
+        renderAll();
+        void applySplashBackground();
+        updatePublicSplashRefreshButton();
+        applySearchUi();
+        if (syncLastPullAt !== previousPullAt) {
+          setSyncStatus('Sync complete', false);
+        }
+      })
+      .catch(err => {
+        setSyncStatus(`Sync error: ${err.message}`, true);
+      });
+  } else {
+    setSyncStatus(syncMode === 'server' ? 'Server sync enabled' : 'Local only');
+  }
+
+  if (syncStatusTickId) clearInterval(syncStatusTickId);
+  syncStatusTickId = setInterval(() => {
+    if (syncMode === 'server') {
+      renderSyncStatusChip();
+    }
+  }, 60000);
 });
 
 // Listen for local setting/state changes
@@ -300,6 +344,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (changes[STORAGE_KEY_SYNC_LAST_PULL_AT]) {
     syncLastPullAt = Number(changes[STORAGE_KEY_SYNC_LAST_PULL_AT].newValue) || 0;
+    renderSyncStatusChip();
   }
   if (changes[STORAGE_KEY_SEARCH_ENABLED]) {
     searchEnabled = changes[STORAGE_KEY_SEARCH_ENABLED].newValue ?? true;
@@ -361,9 +406,36 @@ function renderAll() {
   renderDials();
 }
 
+function buildProfileTabsKey(sortedProfiles) {
+  const parts = sortedProfiles.map(profile => `${profile.id}:${profile.name}:${Number(profile.position) || 0}`);
+  return `${activeProfileId || ''}|${parts.join('|')}`;
+}
+
+function iconToken(value) {
+  return (typeof value === 'string' && value) ? value.length : 0;
+}
+
+function buildDialsKey(profile, sortedDials) {
+  if (!profile) {
+    return `no-profile|active:${activeProfileId || ''}|profiles:${state.profiles.length}|drag:${draggedDialId ? 1 : 0}`;
+  }
+  const grid = getProfileGridColumns(profile) || 0;
+  const dialsPart = sortedDials.map(dial => {
+    if (isFolder(dial)) {
+      const items = Array.isArray(dial.items) ? dial.items : [];
+      const itemsPart = items.map(item => `${item.id}:${item.title || ''}:${item.url || ''}:${iconToken(item.icon_data)}:${item.icon_bg || ''}`).join(',');
+      return `f:${dial.id}:${dial.title || ''}:${Number(dial.position) || 0}:${iconToken(dial.icon_data)}:${dial.icon_bg || ''}:[${itemsPart}]`;
+    }
+    return `d:${dial.id}:${dial.title || ''}:${dial.url || ''}:${Number(dial.position) || 0}:${iconToken(dial.icon_data)}:${dial.icon_bg || ''}`;
+  }).join('|');
+  return `profile:${profile.id}|grid:${grid}|drag:${draggedDialId ? 1 : 0}|${dialsPart}`;
+}
+
 function renderProfileTabs() {
   const nav    = document.getElementById('profile-tabs');
   const sorted = [...state.profiles].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+  const key = buildProfileTabsKey(sorted);
+  if (renderCache.profileTabsKey === key) return;
   nav.innerHTML = '';
 
   for (const profile of sorted) {
@@ -394,11 +466,16 @@ function renderProfileTabs() {
     btn.addEventListener('click', () => switchProfile(profile.id));
     nav.appendChild(btn);
   }
+  renderCache.profileTabsKey = key;
 }
 
 function renderDials() {
   const grid    = document.getElementById('dial-grid');
   const profile = state.profiles.find(p => p.id === activeProfileId);
+  const sorted = [...(profile?.dials || [])].sort((a, b) => a.position - b.position);
+  const key = buildDialsKey(profile, sorted);
+  if (renderCache.dialsKey === key) return;
+
   grid.innerHTML = '';
   grid.classList.toggle('dial-grid--dragging', !!draggedDialId);
 
@@ -413,8 +490,9 @@ function renderDials() {
     grid.style.removeProperty('grid-template-columns');
     const msg = document.createElement('div');
     msg.id = 'empty-state';
-    msg.innerHTML = '<p>No profiles yet.</p><small>Click the <strong>＋</strong> button above to create one.</small>';
+    msg.innerHTML = '<span class="empty-state__icon" aria-hidden="true">🧭</span><p>No profiles yet</p><small>Use the <strong>＋</strong> button in the top bar to create your first profile.</small>';
     grid.appendChild(msg);
+    renderCache.dialsKey = key;
     return;
   }
 
@@ -425,12 +503,10 @@ function renderDials() {
     grid.style.removeProperty('grid-template-columns');
   }
 
-  const sorted = [...(profile.dials || [])].sort((a, b) => a.position - b.position);
-
   if (sorted.length === 0) {
     const msg = document.createElement('div');
     msg.id = 'empty-state';
-    msg.innerHTML = '<p>No dials in this profile.</p><small>Click the card below to add one.</small>';
+    msg.innerHTML = '<span class="empty-state__icon" aria-hidden="true">✨</span><p>No dials in this profile</p><small>Use the add card below to drop your first favorite site.</small>';
     grid.appendChild(msg);
   } else {
     for (const dial of sorted) {
@@ -447,6 +523,7 @@ function renderDials() {
   addCard.addEventListener('click',   () => openAddModal());
   addCard.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') openAddModal(); });
   grid.appendChild(addCard);
+  renderCache.dialsKey = key;
 }
 
 function buildDialCard(dial, allDials) {
@@ -511,28 +588,6 @@ function buildDialCard(dial, allDials) {
   card.addEventListener('dragover', e => handleDialDragOver(e, dial.id));
   card.addEventListener('drop', e => handleDialDrop(e, dial.id));
   card.addEventListener('dragleave', e => handleDialDragLeave(e, dial.id));
-
-  // Order buttons
-  const orderDiv = document.createElement('div');
-  orderDiv.className = 'dial-card__order';
-
-  const idx = allDials.indexOf(dial);
-
-  if (idx > 0) {
-    const upBtn = document.createElement('button');
-    upBtn.textContent = '◀';
-    upBtn.title = 'Move left';
-    upBtn.addEventListener('click', e => { e.stopPropagation(); moveDial(dial, -1); });
-    orderDiv.appendChild(upBtn);
-  }
-  if (idx < allDials.length - 1) {
-    const downBtn = document.createElement('button');
-    downBtn.textContent = '▶';
-    downBtn.title = 'Move right';
-    downBtn.addEventListener('click', e => { e.stopPropagation(); moveDial(dial, 1); });
-    orderDiv.appendChild(downBtn);
-  }
-  card.appendChild(orderDiv);
 
   // Navigate on click
   card.addEventListener('click', () => {
@@ -899,15 +954,20 @@ function getActiveProfile() {
 function openFolderModal(folderId) {
   openFolderId = folderId;
   renderFolderItems();
-  document.getElementById('folder-modal-overlay').classList.remove('hidden');
+  const overlay = document.getElementById('folder-modal-overlay');
+  overlay.classList.remove('hidden');
+  activateModalFocusTrap('folder-modal-overlay', '#folder-add-link');
 }
 
 function closeFolderModal() {
+  const overlay = document.getElementById('folder-modal-overlay');
+  if (overlay.classList.contains('hidden')) return;
   clearFolderDragState();
   const modal = document.querySelector('#folder-modal-overlay .modal--folder');
   modal?.classList.remove('folder-modal--drop-out');
   openFolderId = null;
-  document.getElementById('folder-modal-overlay').classList.add('hidden');
+  overlay.classList.add('hidden');
+  releaseModalFocusTrap('folder-modal-overlay', true);
 }
 
 function clearFolderDragState() {
@@ -1173,7 +1233,7 @@ function openEditFolderItemModal(folder, item) {
 
   closeFolderModal();
   document.getElementById('modal-overlay').classList.remove('hidden');
-  document.getElementById('modal-title-input').focus();
+  activateModalFocusTrap('modal-overlay', '#modal-title-input');
 }
 
 function addLinkToOpenFolder() {
@@ -1294,8 +1354,16 @@ function switchProfile(id) {
 
 function openAddProfileModal() {
   document.getElementById('profile-name-input').value = '';
-  document.getElementById('profile-modal-overlay').classList.remove('hidden');
-  document.getElementById('profile-name-input').focus();
+  const overlay = document.getElementById('profile-modal-overlay');
+  overlay.classList.remove('hidden');
+  activateModalFocusTrap('profile-modal-overlay', '#profile-name-input');
+}
+
+function closeProfileModal() {
+  const overlay = document.getElementById('profile-modal-overlay');
+  if (overlay.classList.contains('hidden')) return;
+  overlay.classList.add('hidden');
+  releaseModalFocusTrap('profile-modal-overlay', true);
 }
 
 async function createProfile(name) {
@@ -1314,6 +1382,7 @@ async function createProfile(name) {
   activeProfileId = newProfile.id;
   await saveLocal();
   renderAll();
+  showToast('Profile created', 'ok');
 }
 
 async function promptRenameProfile(profile) {
@@ -1332,6 +1401,7 @@ async function confirmDeleteProfile(profile) {
   }
   await saveLocal();
   renderAll();
+  showToast('Profile deleted', 'ok');
 }
 
 // ─── Dial actions ─────────────────────────────────────────────────────────────
@@ -1355,7 +1425,7 @@ function openAddModal(folderId = null) {
   updateDialModalTypeUi();
   if (folderId) closeFolderModal();
   document.getElementById('modal-overlay').classList.remove('hidden');
-  document.getElementById('modal-url-input').focus();
+  activateModalFocusTrap('modal-overlay', '#modal-url-input');
 }
 
 function openEditModal(dial) {
@@ -1385,11 +1455,14 @@ function openEditModal(dial) {
   }
 
   document.getElementById('modal-overlay').classList.remove('hidden');
-  document.getElementById('modal-title-input').focus();
+  activateModalFocusTrap('modal-overlay', '#modal-title-input');
 }
 
 function closeModal() {
-  document.getElementById('modal-overlay').classList.add('hidden');
+  const overlay = document.getElementById('modal-overlay');
+  if (overlay.classList.contains('hidden')) return;
+  overlay.classList.add('hidden');
+  releaseModalFocusTrap('modal-overlay', true);
   editingDialId   = null;
   pendingIconData = null;
   editingFolderItemId = null;
@@ -1405,8 +1478,10 @@ function updateDialModalTypeUi() {
 }
 
 async function saveDial() {
+  const wasEditingDial = !!editingDialId;
   // ── Adding a link inside a folder ─────────────────────────────────────────
   if (addingToFolderId) {
+    const wasEditingFolderItem = !!editingFolderItemId;
     const urlEl  = document.getElementById('modal-url-input');
     const rawUrl = urlEl.value.trim();
     if (!rawUrl) { urlEl.focus(); return; }
@@ -1456,6 +1531,7 @@ async function saveDial() {
     closeModal(); // reopens the folder modal
     await saveLocal();
     renderAll();
+    showToast(wasEditingFolderItem ? 'Folder link updated' : 'Link added to folder', 'ok');
     return;
   }
 
@@ -1534,6 +1610,11 @@ async function saveDial() {
 
   await saveLocal();
   renderAll();
+  if (folderMode) {
+    showToast(wasEditingDial ? 'Folder updated' : 'Folder created', 'ok');
+  } else {
+    showToast(wasEditingDial ? 'Dial updated' : 'Dial added', 'ok');
+  }
 }
 
 async function confirmDeleteDial(dial) {
@@ -1543,26 +1624,7 @@ async function confirmDeleteDial(dial) {
   profile.dials = profile.dials.filter(d => d.id !== dial.id);
   await saveLocal();
   renderAll();
-}
-
-async function moveDial(dial, direction) {
-  const profile = state.profiles.find(p => p.id === activeProfileId);
-  if (!profile) return;
-  const sorted = [...profile.dials].sort((a, b) => a.position - b.position);
-  const idx    = sorted.findIndex(d => d.id === dial.id);
-  const newIdx = idx + direction;
-  if (newIdx < 0 || newIdx >= sorted.length) return;
-
-  // Swap positions
-  const tmp            = sorted[idx].position;
-  sorted[idx].position = sorted[newIdx].position;
-  sorted[newIdx].position = tmp;
-
-  // Make positions unique if equal
-  sorted.forEach((d, i) => { d.position = i; });
-
-  await saveLocal();
-  renderAll();
+  showToast('Dial deleted', 'ok');
 }
 
 async function handleRemoveIcon(dialId) {
@@ -1575,6 +1637,7 @@ async function handleRemoveIcon(dialId) {
   await saveLocal();
   closeModal();
   renderAll();
+  showToast('Icon removed', 'ok');
 }
 
 async function saveLocal() {
@@ -1883,9 +1946,147 @@ async function pushStateToServer() {
 
 // ─── UI helpers ───────────────────────────────────────────────────────────────
 function setSyncStatus(msg, isError = false) {
+  syncStatusState = {
+    message: msg || '',
+    tone: isError ? 'err' : (syncMode === 'server' ? 'ok' : 'muted'),
+    updatedAt: Date.now(),
+  };
+  renderSyncStatusChip();
+  if (msg && isError) {
+    showToast(msg, 'err');
+  }
+}
+
+function formatRelativeTime(timestamp) {
+  if (!timestamp) return 'never';
+  const deltaMs = Math.max(0, Date.now() - Number(timestamp));
+  const mins = Math.floor(deltaMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function getSyncFreshnessLabel() {
+  if (syncMode !== 'server') return 'Local only';
+  if (!syncLastPullAt) return 'Never synced';
+  return `Last pull ${formatRelativeTime(syncLastPullAt)}`;
+}
+
+function renderSyncStatusChip() {
   const el = document.getElementById('sync-status');
-  el.textContent = msg;
-  el.className   = isError ? 'error' : '';
+  if (!el) return;
+
+  const tone = syncStatusState.tone || 'muted';
+  const icon = tone === 'err' ? '⚠' : (syncMode === 'server' ? '✓' : '•');
+  const label = syncStatusState.message || (syncMode === 'server' ? 'Server sync enabled' : 'Local only');
+  const freshness = getSyncFreshnessLabel();
+
+  el.className = `sync-status sync-status--${tone}`;
+  el.innerHTML = `
+    <span class="sync-status__icon" aria-hidden="true">${icon}</span>
+    <span class="sync-status__label">${label}</span>
+    <span class="sync-status__meta">${freshness}</span>
+  `;
+}
+
+function showToast(message, tone = 'ok') {
+  if (!message) return;
+  const host = document.getElementById('toast-host');
+  if (!host) return;
+  if (toastTimeoutId) {
+    clearTimeout(toastTimeoutId);
+    toastTimeoutId = null;
+  }
+  host.innerHTML = '';
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast--${tone === 'err' ? 'err' : 'ok'}`;
+  toast.textContent = message;
+  host.appendChild(toast);
+
+  toastTimeoutId = setTimeout(() => {
+    host.innerHTML = '';
+    toastTimeoutId = null;
+  }, 2500);
+}
+
+function isTypingContext(target) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+}
+
+function getFocusableElements(root) {
+  if (!(root instanceof HTMLElement)) return [];
+  const selectors = [
+    'button:not([disabled])',
+    'a[href]',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+  ];
+  return Array.from(root.querySelectorAll(selectors.join(','))).filter(el => {
+    if (!(el instanceof HTMLElement)) return false;
+    return !el.hasAttribute('hidden') && el.offsetParent !== null;
+  });
+}
+
+function activateModalFocusTrap(overlayId, initialSelector) {
+  const overlay = document.getElementById(overlayId);
+  if (!(overlay instanceof HTMLElement)) return;
+
+  releaseModalFocusTrap(overlayId, false);
+
+  const returnFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const onKeyDown = e => {
+    if (e.key !== 'Tab') return;
+    const focusable = getFocusableElements(overlay);
+    if (focusable.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const current = document.activeElement;
+
+    if (e.shiftKey) {
+      if (current === first || !overlay.contains(current)) {
+        e.preventDefault();
+        last.focus();
+      }
+      return;
+    }
+
+    if (current === last || !overlay.contains(current)) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
+  overlay.addEventListener('keydown', onKeyDown);
+  modalFocusState.set(overlayId, {
+    returnFocusEl,
+    cleanup: () => overlay.removeEventListener('keydown', onKeyDown),
+  });
+
+  const initialTarget = (initialSelector && overlay.querySelector(initialSelector)) || getFocusableElements(overlay)[0];
+  if (initialTarget instanceof HTMLElement) {
+    initialTarget.focus();
+  }
+}
+
+function releaseModalFocusTrap(overlayId, restoreFocus = true) {
+  const state = modalFocusState.get(overlayId);
+  if (!state) return;
+  state.cleanup();
+  modalFocusState.delete(overlayId);
+  if (restoreFocus && state.returnFocusEl?.isConnected) {
+    state.returnFocusEl.focus();
+  }
 }
 
 function applySearchUi() {
@@ -1925,10 +2126,47 @@ async function chromeGet(keys) {
   return new Promise(resolve => chrome.storage.local.get(keys, resolve));
 }
 
+async function syncNowFromTopbar() {
+  if (topbarSyncInProgress) return;
+  const btn = document.getElementById('btn-sync-now');
+  if (!(btn instanceof HTMLButtonElement)) return;
+
+  topbarSyncInProgress = true;
+  btn.disabled = true;
+  btn.classList.add('btn-sync-now--busy');
+
+  try {
+    if (syncMode !== 'server') {
+      setSyncStatus('Local mode active', false);
+      showToast('Switch to server mode in Settings to sync', 'ok');
+      return;
+    }
+    if (!syncServerUrl || !syncApiKey || !syncUsername || !syncPassword) {
+      setSyncStatus('Sync credentials missing', true);
+      return;
+    }
+
+    setSyncStatus('Syncing now...', false);
+    await loadInitialState(true);
+    renderAll();
+    setSyncStatus('Sync complete', false);
+    showToast('Synced from server', 'ok');
+  } catch (err) {
+    setSyncStatus(`Sync error: ${err.message}`, true);
+  } finally {
+    topbarSyncInProgress = false;
+    btn.disabled = false;
+    btn.classList.remove('btn-sync-now--busy');
+  }
+}
+
 // ─── Event listeners ──────────────────────────────────────────────────────────
 document.getElementById('btn-add-profile').addEventListener('click', openAddProfileModal);
 document.getElementById('btn-settings').addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
+});
+document.getElementById('btn-sync-now').addEventListener('click', () => {
+  void syncNowFromTopbar();
 });
 
 document.getElementById('btn-splash-refresh-tab').addEventListener('click', () => {
@@ -1991,16 +2229,16 @@ document.getElementById('modal-icon-remove').addEventListener('click', e => {
 
 // Profile modal
 document.getElementById('profile-modal-cancel').addEventListener('click', () => {
-  document.getElementById('profile-modal-overlay').classList.add('hidden');
+  closeProfileModal();
 });
 document.getElementById('profile-modal-save').addEventListener('click', () => {
   const name = document.getElementById('profile-name-input').value;
-  document.getElementById('profile-modal-overlay').classList.add('hidden');
+  closeProfileModal();
   createProfile(name);
 });
 document.getElementById('profile-modal-overlay').addEventListener('click', e => {
   if (e.target === e.currentTarget) {
-    document.getElementById('profile-modal-overlay').classList.add('hidden');
+    closeProfileModal();
   }
 });
 
@@ -2069,11 +2307,36 @@ folderModalShell?.addEventListener('drop', e => {
 
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'k') {
+    if (!isTypingContext(e.target)) {
+      e.preventDefault();
+      const searchInput = document.getElementById('search-input');
+      if (searchInput && searchEnabled) {
+        searchInput.focus();
+        searchInput.select();
+      }
+    }
+    return;
+  }
+
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'n') {
+    if (!isTypingContext(e.target)) {
+      const dialModalOpen = !document.getElementById('modal-overlay').classList.contains('hidden');
+      const folderModalOpen = !document.getElementById('folder-modal-overlay').classList.contains('hidden');
+      const profileModalOpen = !document.getElementById('profile-modal-overlay').classList.contains('hidden');
+      if (!dialModalOpen && !folderModalOpen && !profileModalOpen) {
+        e.preventDefault();
+        openAddModal();
+      }
+    }
+    return;
+  }
+
   if (e.key === 'Escape') {
     closeAllCardMenus();
     closeModal();
     closeFolderModal();
-    document.getElementById('profile-modal-overlay').classList.add('hidden');
+    closeProfileModal();
   }
 });
 

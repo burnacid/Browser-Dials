@@ -144,7 +144,8 @@ body.splash-enabled::after {
 .profile-tab.active .profile-tab__delete:hover { color: #fca5a5; opacity: 1; }
 
 #btn-add-profile,
-#btn-settings {
+#btn-settings,
+#btn-sync-now {
   flex-shrink: 0;
   background: none;
   border: none;
@@ -156,19 +157,74 @@ body.splash-enabled::after {
   cursor: pointer;
   transition: background var(--transition), color var(--transition);
 }
-#btn-add-profile:hover, #btn-settings:hover {
+#btn-add-profile:hover, #btn-settings:hover, #btn-sync-now:hover {
   background: var(--surface-2);
   color: var(--text);
 }
 
-#sync-status {
-  font-size: 12px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-  min-width: 90px;
-  text-align: right;
+#btn-sync-now.btn-sync-now--busy {
+  animation: topbar-sync-spin 700ms linear infinite;
 }
-#sync-status.error { color: var(--danger); }
+
+@keyframes topbar-sync-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+#sync-status {
+  font-size: 11px;
+  line-height: 1.25;
+  flex-shrink: 0;
+  min-width: 164px;
+  text-align: left;
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  column-gap: 6px;
+  row-gap: 1px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+#sync-status .sync-status__icon {
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-size: 11px;
+}
+
+#sync-status .sync-status__label {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#sync-status .sync-status__meta {
+  color: var(--text-muted);
+}
+
+#sync-status.sync-status--ok {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+}
+
+#sync-status.sync-status--ok .sync-status__icon {
+  color: var(--accent-dark);
+}
+
+#sync-status.sync-status--err {
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--border));
+}
+
+#sync-status.sync-status--err .sync-status__icon,
+#sync-status.sync-status--err .sync-status__label {
+  color: var(--danger);
+}
+
+#sync-status.sync-status--muted .sync-status__icon {
+  color: var(--text-muted);
+}
 
 .splash-refresh-tab {
   position: fixed;
@@ -466,27 +522,6 @@ body.splash-enabled::after {
 .dial-card__actions button:hover { background: var(--border); }
 .dial-card__actions .btn-delete:hover { color: var(--danger); }
 
-/* Order buttons */
-.dial-card__order {
-  position: absolute;
-  bottom: 4px;
-  right: 4px;
-  display: none;
-  gap: 2px;
-}
-.dial-card:hover .dial-card__order { display: flex; }
-.dial-grid--dragging .dial-card__order { display: none; }
-.dial-card__order button {
-  background: var(--surface-2);
-  border: none;
-  border-radius: 4px;
-  padding: 2px 5px;
-  font-size: 11px;
-  cursor: pointer;
-  color: var(--text-muted);
-}
-.dial-card__order button:hover { color: var(--text); }
-
 /* ─── Add dial card ──────────────────────────────────────────────────────────── */
 .dial-card--add {
   border-style: dashed;
@@ -508,12 +543,42 @@ body.splash-enabled::after {
 /* ─── Empty state ─────────────────────────────────────────────────────────────── */
 #empty-state {
   grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   color: var(--text-muted);
-  padding: 60px 20px;
+  gap: 8px;
+  padding: 64px 24px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 38%, var(--border));
+  border-radius: calc(var(--radius) + 2px);
+  background:
+    radial-gradient(380px 220px at 50% -20%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 70%),
+    color-mix(in srgb, var(--surface) 82%, transparent);
 }
-#empty-state p { font-size: 16px; margin-bottom: 8px; }
-#empty-state small { font-size: 13px; }
+#empty-state p {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  color: var(--text);
+}
+#empty-state small {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.empty-state__icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+}
 
 #dial-grid.dial-grid--append {
   border: 2px dashed color-mix(in srgb, var(--accent) 48%, transparent);
@@ -533,6 +598,46 @@ body.splash-enabled::after {
   padding: 16px;
 }
 .modal-overlay.hidden { display: none; }
+
+#toast-host {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  min-width: 220px;
+  max-width: min(92vw, 360px);
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transform: translateY(6px);
+  opacity: 0;
+  animation: toast-in 180ms ease forwards;
+}
+
+.toast.toast--ok {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.toast.toast--err {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+}
+
+@keyframes toast-in {
+  from { transform: translateY(6px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
 
 .modal {
   background: color-mix(in srgb, var(--surface) 92%, transparent);
