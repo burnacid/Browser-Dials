@@ -265,6 +265,11 @@ body.splash-enabled::after {
   display: block;
 }
 
+.dial-card__icon--with-bg {
+  padding: 6px;
+  border-radius: 12px;
+}
+
 .dial-card__avatar {
   width: 52px;
   height: 52px;
@@ -465,6 +470,28 @@ body.splash-enabled::after {
   border: 1px solid var(--border);
 }
 .icon-preview.hidden { display: none; }
+
+.icon-bg-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#modal-icon-bg-color {
+  width: 44px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+#modal-icon-bg-color:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
 
 .modal-actions {
   display: flex;

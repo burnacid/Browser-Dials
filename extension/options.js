@@ -399,12 +399,14 @@ function normalizeState(raw) {
         url: dial.type === 'folder' ? '' : String(dial.url || 'https://example.com'),
         position: Number.isInteger(dial.position) ? dial.position : dIdx,
         icon_data: typeof dial.icon_data === 'string' ? dial.icon_data : null,
+        icon_bg: typeof dial.icon_bg === 'string' ? dial.icon_bg : null,
         items: dial.type === 'folder'
           ? (Array.isArray(dial.items) ? dial.items : []).map(item => ({
               id: String(item.id || crypto.randomUUID()),
               title: String(item.title || ''),
               url: String(item.url || 'https://example.com'),
               icon_data: typeof item.icon_data === 'string' ? item.icon_data : null,
+              icon_bg: typeof item.icon_bg === 'string' ? item.icon_bg : null,
             }))
           : undefined,
       })),
@@ -637,6 +639,7 @@ async function pushStateToServer(syncConfig, localState) {
         title: String(dial.title || ''),
         url: String(dial.url),
         position: Number.isInteger(dial.position) ? dial.position : idx,
+        settings_json: JSON.stringify(buildDialSettingsPayload(dial)),
       })),
   }));
 
@@ -652,6 +655,16 @@ async function pushStateToServer(syncConfig, localState) {
   });
 
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+}
+
+function buildDialSettingsPayload(dial) {
+  const payload = (dial?.settings && typeof dial.settings === 'object' && !Array.isArray(dial.settings))
+    ? { ...dial.settings }
+    : {};
+  if (typeof dial?.icon_bg === 'string' && dial.icon_bg) {
+    payload.icon_bg = dial.icon_bg;
+  }
+  return payload;
 }
 
 function setBackupStatus(msg, type) {

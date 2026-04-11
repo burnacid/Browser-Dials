@@ -329,16 +329,16 @@ function buildDialCard(dial, allDials) {
 function buildIcon(dial) {
   if (isFolder(dial)) {
     if (dial.icon_data) {
-      return buildImgIcon(dial.icon_data, dial.title || 'Folder');
+      return buildImgIcon(dial.icon_data, dial.title || 'Folder', dial.icon_bg);
     }
     return buildFolderIcon();
   }
   if (dial.icon_data) {
-    return buildImgIcon(dial.icon_data, dial.title || dial.url);
+    return buildImgIcon(dial.icon_data, dial.title || dial.url, dial.icon_bg);
   }
   // Try favicon
   const faviconSrc = faviconUrl(dial.url);
-  const img = buildImgIcon(faviconSrc, dial.title || dial.url);
+  const img = buildImgIcon(faviconSrc, dial.title || dial.url, dial.icon_bg);
   img.addEventListener('error', () => {
     const avatar = buildAvatar(dial.title || hostname(dial.url));
     img.replaceWith(avatar);
@@ -346,13 +346,30 @@ function buildIcon(dial) {
   return img;
 }
 
-function buildImgIcon(src, alt) {
+function buildImgIcon(src, alt, bgColor = null) {
   const img       = document.createElement('img');
   img.className   = 'dial-card__icon';
   img.src         = src;
   img.alt         = alt;
   img.crossOrigin = 'anonymous';
+  if (bgColor) {
+    img.classList.add('dial-card__icon--with-bg');
+    img.style.backgroundColor = bgColor;
+  }
   return img;
+}
+
+function getModalIconBackground() {
+  const enabled = document.getElementById('modal-icon-bg-enabled').checked;
+  const color = document.getElementById('modal-icon-bg-color').value;
+  if (!enabled) return null;
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) return '#ffffff';
+  return color;
+}
+
+function updateIconBgColorUi() {
+  const enabled = document.getElementById('modal-icon-bg-enabled').checked;
+  document.getElementById('modal-icon-bg-color').disabled = !enabled;
 }
 
 function buildAvatar(label) {
@@ -580,8 +597,11 @@ function openAddModal() {
   document.getElementById('modal-is-folder').checked       = false;
   document.getElementById('modal-url-input').value         = '';
   document.getElementById('modal-icon-input').value        = '';
+  document.getElementById('modal-icon-bg-enabled').checked = false;
+  document.getElementById('modal-icon-bg-color').value = '#ffffff';
   document.getElementById('modal-icon-preview').classList.add('hidden');
   document.getElementById('modal-icon-remove').classList.add('hidden');
+  updateIconBgColorUi();
   updateDialModalTypeUi();
   document.getElementById('modal-overlay').classList.remove('hidden');
   document.getElementById('modal-url-input').focus();
@@ -596,6 +616,9 @@ function openEditModal(dial) {
   document.getElementById('modal-is-folder').checked       = isFolder(dial);
   document.getElementById('modal-url-input').value         = dial.url || '';
   document.getElementById('modal-icon-input').value        = '';
+  document.getElementById('modal-icon-bg-enabled').checked = !!dial.icon_bg;
+  document.getElementById('modal-icon-bg-color').value = dial.icon_bg || '#ffffff';
+  updateIconBgColorUi();
   updateDialModalTypeUi();
 
   const preview = document.getElementById('modal-icon-preview');
@@ -628,6 +651,7 @@ function updateDialModalTypeUi() {
 async function saveDial() {
   const titleEl = document.getElementById('modal-title-input');
   const urlEl   = document.getElementById('modal-url-input');
+  const iconBgColor = getModalIconBackground();
   const folderMode = document.getElementById('modal-is-folder').checked;
   const title   = titleEl.value.trim();
   const rawUrl  = urlEl.value.trim();
@@ -656,6 +680,7 @@ async function saveDial() {
     if (!dial) return;
     dial.type = folderMode ? 'folder' : 'dial';
     dial.title = title;
+    dial.icon_bg = iconBgColor;
     if (folderMode) {
       dial.url = '';
       if (!Array.isArray(dial.items)) dial.items = [];
@@ -673,6 +698,7 @@ async function saveDial() {
       url:       folderMode ? '' : cleanUrl,
       position:  profile.dials.length,
       icon_data: null,
+      icon_bg: iconBgColor,
     };
     if (folderMode) {
       newDial.items = [];
@@ -791,15 +817,21 @@ function normalizeServerProfiles(rawProfiles) {
         id: profileId,
         name: String(profile.name || 'Profile'),
         position: Number.isInteger(profile.position) ? profile.position : pIdx,
-        dials: dials.map((dial, dIdx) => ({
-          id: String(dial.id || uuid()),
-          profile_id: profileId,
-          type: 'dial',
-          title: String(dial.title || ''),
-          url: String(dial.url || 'https://example.com'),
-          position: Number.isInteger(dial.position) ? dial.position : dIdx,
-          icon_data: null,
-        })),
+        dials: dials.map((dial, dIdx) => {
+          const settings = parseDialSettings(dial.settings_json, dial.settings);
+          const iconBg = typeof settings.icon_bg === 'string' ? settings.icon_bg : null;
+          return {
+            id: String(dial.id || uuid()),
+            profile_id: profileId,
+            type: 'dial',
+            title: String(dial.title || ''),
+            url: String(dial.url || 'https://example.com'),
+            position: Number.isInteger(dial.position) ? dial.position : dIdx,
+            icon_data: null,
+            icon_bg: iconBg,
+            settings,
+          };
+        }),
       };
     }),
   };
@@ -818,8 +850,37 @@ function toServerProfiles(localState) {
         title: String(dial.title || ''),
         url: String(dial.url),
         position: Number.isInteger(dial.position) ? dial.position : idx,
+        settings_json: JSON.stringify(buildDialSettingsPayload(dial)),
       })),
   }));
+}
+
+function parseDialSettings(settingsJson, settingsObj) {
+  const fromObj = (settingsObj && typeof settingsObj === 'object' && !Array.isArray(settingsObj))
+    ? { ...settingsObj }
+    : {};
+  if (typeof settingsJson !== 'string' || !settingsJson.trim()) {
+    return fromObj;
+  }
+  try {
+    const parsed = JSON.parse(settingsJson);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return { ...fromObj, ...parsed };
+    }
+  } catch {
+    // Ignore malformed settings_json and keep defaults.
+  }
+  return fromObj;
+}
+
+function buildDialSettingsPayload(dial) {
+  const payload = (dial.settings && typeof dial.settings === 'object' && !Array.isArray(dial.settings))
+    ? { ...dial.settings }
+    : {};
+  if (typeof dial.icon_bg === 'string' && dial.icon_bg) {
+    payload.icon_bg = dial.icon_bg;
+  }
+  return payload;
 }
 
 async function fetchServerState() {
@@ -925,6 +986,7 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeModal();
 });
 document.getElementById('modal-is-folder').addEventListener('change', updateDialModalTypeUi);
+document.getElementById('modal-icon-bg-enabled').addEventListener('change', updateIconBgColorUi);
 
 document.getElementById('modal-icon-input').addEventListener('change', e => {
   const file = e.target.files?.[0];

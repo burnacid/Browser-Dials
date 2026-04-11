@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS `dials` (
   `url`        VARCHAR(2048) NOT NULL,
   `position`   INT           NOT NULL DEFAULT 0,
   `icon_path`  VARCHAR(512)  NULL,
+  `settings_json` LONGTEXT   NULL,
   `created_at` DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   CONSTRAINT `fk_dials_profile`
