@@ -688,6 +688,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateSplashControlState();
   updateSyncControlState();
   updateSubtitle();
+  updateBackButtonVisibility();
   updateLoginStateUi();
 
   applyActiveProfileTheme();
@@ -1440,6 +1441,20 @@ function updateSubtitle() {
   subtitle.textContent = mode === 'server' ? 'Settings (Server Sync)' : 'Settings (Local Only)';
 }
 
+function isEmbeddedOptionsPage() {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+function updateBackButtonVisibility() {
+  const backButton = document.getElementById('btn-back-newtab');
+  if (!backButton) return;
+  backButton.hidden = isEmbeddedOptionsPage();
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 async function saveState() {
   const stateSnapshot = cloneStateForSync(state);
@@ -1763,6 +1778,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 // ─── Event wiring ─────────────────────────────────────────────────────────────
 document.getElementById('btn-add-profile').addEventListener('click', addProfile);
+document.getElementById('btn-back-newtab').addEventListener('click', () => {
+  window.location.href = chrome.runtime.getURL('newtab.html');
+});
 document.getElementById('btn-clear-local').addEventListener('click', clearLocal);
 document.getElementById('btn-export').addEventListener('click', exportJson);
 document.getElementById('btn-import').addEventListener('click', () => {

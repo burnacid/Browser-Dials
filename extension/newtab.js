@@ -562,6 +562,30 @@ function updateProfileActionButtons() {
   editBtn.setAttribute('aria-label', hasActiveProfile ? `Rename ${activeProfile.name}` : 'Rename active profile');
 }
 
+function openSettingsDrawer() {
+  const overlay = document.getElementById('settings-drawer-overlay');
+  if (overlay.classList.contains('hidden')) {
+    overlay.classList.remove('hidden');
+    activateModalFocusTrap('settings-drawer-overlay', '#btn-settings-close');
+  }
+}
+
+function closeSettingsDrawer() {
+  const overlay = document.getElementById('settings-drawer-overlay');
+  if (overlay.classList.contains('hidden')) return;
+  overlay.classList.add('hidden');
+  releaseModalFocusTrap('settings-drawer-overlay', true);
+}
+
+function toggleSettingsDrawer() {
+  const overlay = document.getElementById('settings-drawer-overlay');
+  if (overlay.classList.contains('hidden')) {
+    openSettingsDrawer();
+    return;
+  }
+  closeSettingsDrawer();
+}
+
 function renderDials() {
   const grid    = document.getElementById('dial-grid');
   const profile = state.profiles.find(p => p.id === activeProfileId);
@@ -2286,7 +2310,9 @@ document.getElementById('btn-edit-profile').addEventListener('click', () => {
   if (!activeProfile) return;
   void promptRenameProfile(activeProfile);
 });
-document.getElementById('btn-settings').addEventListener('click', () => {
+document.getElementById('btn-settings').addEventListener('click', toggleSettingsDrawer);
+document.getElementById('btn-settings-close').addEventListener('click', closeSettingsDrawer);
+document.getElementById('btn-settings-full').addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
 document.getElementById('btn-sync-now').addEventListener('click', () => {
@@ -2363,6 +2389,12 @@ document.getElementById('profile-modal-save').addEventListener('click', () => {
 document.getElementById('profile-modal-overlay').addEventListener('click', e => {
   if (e.target === e.currentTarget) {
     closeProfileModal();
+  }
+});
+
+document.getElementById('settings-drawer-overlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget || e.target.classList.contains('settings-drawer-backdrop')) {
+    closeSettingsDrawer();
   }
 });
 
@@ -2461,6 +2493,7 @@ document.addEventListener('keydown', e => {
     closeModal();
     closeFolderModal();
     closeProfileModal();
+    closeSettingsDrawer();
   }
 });
 

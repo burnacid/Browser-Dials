@@ -24,6 +24,23 @@
     </form>
   </section>
 
+  <div id="settings-drawer-overlay" class="settings-drawer-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="settings-drawer-title">
+    <div class="settings-drawer-backdrop"></div>
+    <aside class="settings-drawer">
+      <div class="settings-drawer__header">
+        <div>
+          <h2 id="settings-drawer-title">Settings</h2>
+          <p>Adjust Browser Dials without leaving the page.</p>
+        </div>
+        <div class="settings-drawer__actions">
+          <button id="btn-settings-full" type="button" class="btn-secondary">Open page</button>
+          <button id="btn-settings-close" type="button" class="btn-secondary" aria-label="Close settings">Close</button>
+        </div>
+      </div>
+      <iframe id="settings-drawer-frame" src="options.html" title="Browser Dials settings"></iframe>
+    </aside>
+  </div>
+
   <!-- ── Dial grid ─────────────────────────────────────────────────────── -->
   <main id="dial-grid" role="main"></main>
 
