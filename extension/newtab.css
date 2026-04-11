@@ -256,6 +256,56 @@ body.splash-enabled::after {
   box-shadow: 0 14px 28px rgba(0,0,0,.18);
 }
 
+.dial-card--dragging {
+  opacity: .45;
+  transform: scale(.97);
+}
+
+.dial-card--drop-before,
+.dial-card--drop-after,
+.dial-card--drop-merge {
+  border-color: var(--accent);
+}
+
+.dial-card--drop-before::before,
+.dial-card--drop-after::after {
+  content: '';
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent), var(--accent-dark));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.dial-card--drop-before::before {
+  left: 6px;
+}
+
+.dial-card--drop-after::after {
+  right: 6px;
+}
+
+.dial-card--drop-merge {
+  background: color-mix(in srgb, var(--surface) 74%, var(--accent) 26%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 44%, transparent), var(--shadow);
+}
+
+.dial-card--drop-merge::after {
+  content: 'Create folder';
+  position: absolute;
+  inset: auto 10px 10px 10px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, .92);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-align: center;
+}
+
 .dial-card__icon {
   width: 52px;
   height: 52px;
@@ -340,6 +390,7 @@ body.splash-enabled::after {
   gap: 2px;
 }
 .dial-card:hover .dial-card__order { display: flex; }
+.dial-grid--dragging .dial-card__order { display: none; }
 .dial-card__order button {
   background: var(--surface-2);
   border: none;
@@ -378,6 +429,12 @@ body.splash-enabled::after {
 }
 #empty-state p { font-size: 16px; margin-bottom: 8px; }
 #empty-state small { font-size: 13px; }
+
+#dial-grid.dial-grid--append {
+  border: 2px dashed color-mix(in srgb, var(--accent) 48%, transparent);
+  border-radius: calc(var(--radius) + 6px);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+}
 
 /* ─── Modals ─────────────────────────────────────────────────────────────────── */
 .modal-overlay {

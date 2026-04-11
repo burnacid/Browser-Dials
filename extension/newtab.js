@@ -41,6 +41,10 @@ let splashPublicOn = false;
 let splashProvider = 'picsum';
 let splashQuery = '';
 let splashRefreshToken = 0;
+let draggedDialId = null;
+let dragHoverDialId = null;
+let dragHoverMode = null;
+let dragDidMove = false;
 
 // Modal edit context
 let editingDialId  = null;   // null → adding new dial
@@ -201,6 +205,14 @@ function renderDials() {
   const grid    = document.getElementById('dial-grid');
   const profile = state.profiles.find(p => p.id === activeProfileId);
   grid.innerHTML = '';
+  grid.classList.toggle('dial-grid--dragging', !!draggedDialId);
+
+  if (!grid.dataset.dragBound) {
+    grid.addEventListener('dragover', handleGridDragOver);
+    grid.addEventListener('drop', handleGridDrop);
+    grid.addEventListener('dragleave', handleGridDragLeave);
+    grid.dataset.dragBound = 'true';
+  }
 
   if (!profile) {
     const msg = document.createElement('div');
@@ -238,7 +250,10 @@ function buildDialCard(dial, allDials) {
   const card = document.createElement('div');
   card.className = 'dial-card';
   card.dataset.dialId = dial.id;
+  card.draggable = true;
   const folder = isFolder(dial);
+
+  applyDragVisualState(card, dial.id);
 
   // Icon
   const iconEl = buildIcon(dial);
@@ -288,6 +303,12 @@ function buildDialCard(dial, allDials) {
     }
   });
 
+  card.addEventListener('dragstart', e => handleDialDragStart(e, dial.id));
+  card.addEventListener('dragend', handleDialDragEnd);
+  card.addEventListener('dragover', e => handleDialDragOver(e, dial.id));
+  card.addEventListener('drop', e => handleDialDrop(e, dial.id));
+  card.addEventListener('dragleave', e => handleDialDragLeave(e, dial.id));
+
   // Order buttons
   const orderDiv = document.createElement('div');
   orderDiv.className = 'dial-card__order';
@@ -312,6 +333,10 @@ function buildDialCard(dial, allDials) {
 
   // Navigate on click
   card.addEventListener('click', () => {
+    if (dragDidMove) {
+      dragDidMove = false;
+      return;
+    }
     if (folder) {
       openFolderModal(dial.id);
       return;
@@ -394,6 +419,232 @@ function closeAllCardMenus() {
   document.querySelectorAll('.dial-card.context-open').forEach(card => {
     card.classList.remove('context-open');
   });
+}
+
+function handleDialDragStart(event, dialId) {
+  draggedDialId = dialId;
+  dragHoverDialId = null;
+  dragHoverMode = null;
+  dragDidMove = false;
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', dialId);
+  requestAnimationFrame(() => {
+    const card = event.currentTarget;
+    if (card instanceof HTMLElement) {
+      card.classList.add('dial-card--dragging');
+    }
+    document.getElementById('dial-grid')?.classList.add('dial-grid--dragging');
+  });
+}
+
+function handleDialDragEnd(event) {
+  const card = event.currentTarget;
+  if (card instanceof HTMLElement) {
+    card.classList.remove('dial-card--dragging');
+  }
+  clearDialDragState();
+}
+
+function handleDialDragOver(event, targetDialId) {
+  if (!draggedDialId || draggedDialId === targetDialId) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const mode = getDropMode(event);
+  dragHoverDialId = targetDialId;
+  dragHoverMode = mode;
+  applyDragVisualState(event.currentTarget, targetDialId);
+  event.dataTransfer.dropEffect = 'move';
+}
+
+function handleDialDrop(event, targetDialId) {
+  if (!draggedDialId || draggedDialId === targetDialId) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const mode = getDropMode(event);
+  void handleDialDropAction(draggedDialId, targetDialId, mode);
+}
+
+function handleDialDragLeave(event, targetDialId) {
+  const related = event.relatedTarget;
+  if (related instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(related)) {
+    return;
+  }
+  if (dragHoverDialId === targetDialId) {
+    dragHoverDialId = null;
+    dragHoverMode = null;
+    applyDragVisualState(event.currentTarget, targetDialId);
+  }
+}
+
+function handleGridDragOver(event) {
+  if (!draggedDialId) return;
+  event.preventDefault();
+  if (event.target === event.currentTarget) {
+    dragHoverDialId = null;
+    dragHoverMode = 'append';
+    event.currentTarget.classList.add('dial-grid--append');
+  }
+  event.dataTransfer.dropEffect = 'move';
+}
+
+function handleGridDrop(event) {
+  if (!draggedDialId) return;
+  if (event.target !== event.currentTarget) return;
+  event.preventDefault();
+  void appendDialToEnd(draggedDialId);
+}
+
+function handleGridDragLeave(event) {
+  const related = event.relatedTarget;
+  if (related instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(related)) {
+    return;
+  }
+  if (event.currentTarget instanceof HTMLElement) {
+    event.currentTarget.classList.remove('dial-grid--append');
+  }
+}
+
+function applyDragVisualState(card, dialId) {
+  if (!(card instanceof HTMLElement)) return;
+  card.classList.remove('dial-card--drop-before', 'dial-card--drop-after', 'dial-card--drop-merge');
+  if (dragHoverDialId !== dialId) return;
+  if (dragHoverMode === 'before') card.classList.add('dial-card--drop-before');
+  if (dragHoverMode === 'after') card.classList.add('dial-card--drop-after');
+  if (dragHoverMode === 'merge') card.classList.add('dial-card--drop-merge');
+}
+
+function getDropMode(event) {
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLElement)) return 'after';
+  const rect = target.getBoundingClientRect();
+  const relativeX = event.clientX - rect.left;
+  const ratio = rect.width > 0 ? relativeX / rect.width : 0.5;
+  if (ratio < 0.25) return 'before';
+  if (ratio > 0.75) return 'after';
+  return 'merge';
+}
+
+async function handleDialDropAction(sourceDialId, targetDialId, mode) {
+  try {
+    if (mode === 'before' || mode === 'after') {
+      await moveDialToTarget(sourceDialId, targetDialId, mode);
+    } else {
+      await mergeDialsIntoFolder(sourceDialId, targetDialId);
+    }
+    dragDidMove = true;
+  } finally {
+    clearDialDragState();
+  }
+}
+
+function clearDialDragState() {
+  draggedDialId = null;
+  dragHoverDialId = null;
+  dragHoverMode = null;
+  const grid = document.getElementById('dial-grid');
+  grid?.classList.remove('dial-grid--dragging', 'dial-grid--append');
+  document.querySelectorAll('.dial-card--dragging, .dial-card--drop-before, .dial-card--drop-after, .dial-card--drop-merge').forEach(card => {
+    card.classList.remove('dial-card--dragging', 'dial-card--drop-before', 'dial-card--drop-after', 'dial-card--drop-merge');
+  });
+}
+
+async function appendDialToEnd(dialId) {
+  const profile = getActiveProfile();
+  if (!profile) return;
+  const sorted = [...profile.dials].sort((a, b) => a.position - b.position);
+  const sourceIndex = sorted.findIndex(d => d.id === dialId);
+  if (sourceIndex < 0 || sourceIndex === sorted.length - 1) {
+    clearDialDragState();
+    return;
+  }
+  const [sourceDial] = sorted.splice(sourceIndex, 1);
+  sorted.push(sourceDial);
+  profile.dials = sorted.map((dial, index) => ({ ...dial, position: index }));
+  dragDidMove = true;
+  await saveLocal();
+  renderAll();
+  clearDialDragState();
+}
+
+async function moveDialToTarget(sourceDialId, targetDialId, mode) {
+  const profile = getActiveProfile();
+  if (!profile) return;
+  const sorted = [...profile.dials].sort((a, b) => a.position - b.position);
+  const sourceIndex = sorted.findIndex(d => d.id === sourceDialId);
+  const targetIndex = sorted.findIndex(d => d.id === targetDialId);
+  if (sourceIndex < 0 || targetIndex < 0) return;
+
+  const [sourceDial] = sorted.splice(sourceIndex, 1);
+  let insertIndex = sorted.findIndex(d => d.id === targetDialId);
+  if (insertIndex < 0) {
+    sorted.push(sourceDial);
+  } else {
+    if (mode === 'after') insertIndex += 1;
+    sorted.splice(insertIndex, 0, sourceDial);
+  }
+
+  profile.dials = sorted.map((dial, index) => ({ ...dial, position: index }));
+  await saveLocal();
+  renderAll();
+}
+
+async function mergeDialsIntoFolder(sourceDialId, targetDialId) {
+  const profile = getActiveProfile();
+  if (!profile) return;
+  const sourceDial = profile.dials.find(d => d.id === sourceDialId);
+  const targetDial = profile.dials.find(d => d.id === targetDialId);
+  if (!sourceDial || !targetDial) return;
+
+  if (isFolder(sourceDial) && isFolder(targetDial)) {
+    return;
+  }
+
+  if (isFolder(targetDial)) {
+    if (isFolder(sourceDial)) return;
+    if (!Array.isArray(targetDial.items)) targetDial.items = [];
+    targetDial.items.push(convertDialToFolderItem(sourceDial));
+    profile.dials = profile.dials.filter(d => d.id !== sourceDial.id);
+  } else if (isFolder(sourceDial)) {
+    if (!Array.isArray(sourceDial.items)) sourceDial.items = [];
+    sourceDial.items.push(convertDialToFolderItem(targetDial));
+    profile.dials = profile.dials.filter(d => d.id !== targetDial.id);
+    sourceDial.position = targetDial.position;
+  } else {
+    const folderDial = {
+      id: uuid(),
+      profile_id: profile.id,
+      type: 'folder',
+      title: targetDial.title || sourceDial.title || 'Folder',
+      url: '',
+      position: Math.min(sourceDial.position, targetDial.position),
+      icon_data: null,
+      icon_bg: null,
+      items: [convertDialToFolderItem(targetDial), convertDialToFolderItem(sourceDial)],
+    };
+    profile.dials = profile.dials.filter(d => d.id !== sourceDial.id && d.id !== targetDial.id);
+    profile.dials.push(folderDial);
+  }
+
+  profile.dials = [...profile.dials]
+    .sort((a, b) => a.position - b.position)
+    .map((dial, index) => ({ ...dial, position: index }));
+
+  if (openFolderId === sourceDialId || openFolderId === targetDialId) {
+    openFolderId = null;
+  }
+
+  await saveLocal();
+  renderAll();
+}
+
+function convertDialToFolderItem(dial) {
+  return {
+    id: dial.id,
+    title: dial.title || '',
+    url: dial.url,
+    icon_data: dial.icon_data || null,
+    icon_bg: dial.icon_bg || null,
+  };
 }
 
 function getActiveProfile() {
