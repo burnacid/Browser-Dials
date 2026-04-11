@@ -1,0 +1,427 @@
+/* ─── CSS Custom properties ─────────────────────────────────────────────────── */
+:root {
+  --bg:          #f0f2f5;
+  --surface:     #ffffff;
+  --surface-2:   #e8eaed;
+  --border:      #d1d5db;
+  --text:        #111827;
+  --text-muted:  #6b7280;
+  --accent:      #2563eb;
+  --accent-dark: #1d4ed8;
+  --danger:      #dc2626;
+  --shadow:      0 2px 8px rgba(0,0,0,.08);
+  --radius:      12px;
+  --dial-size:   140px;
+  --header-h:    52px;
+  --transition:  160ms ease;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:         #0f1117;
+    --surface:    #1c1f26;
+    --surface-2:  #252830;
+    --border:     #374151;
+    --text:       #f9fafb;
+    --text-muted: #9ca3af;
+    --shadow:     0 2px 8px rgba(0,0,0,.4);
+  }
+}
+
+/* ─── Reset ──────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+/* ─── Header / Profile tabs ─────────────────────────────────────────────────── */
+#header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--header-h);
+  padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+#profile-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+#profile-tabs::-webkit-scrollbar { display: none; }
+
+.profile-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition), color var(--transition);
+}
+.profile-tab:hover { background: var(--surface-2); color: var(--text); }
+.profile-tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.profile-tab__rename {
+  display: none;
+  background: none;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+  font-size: 12px;
+  opacity: .7;
+  color: inherit;
+}
+.profile-tab.active .profile-tab__rename { display: inline; }
+.profile-tab.active .profile-tab__rename:hover { opacity: 1; }
+
+.profile-tab__delete {
+  display: none;
+  background: none;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+  font-size: 12px;
+  opacity: .7;
+  color: inherit;
+}
+.profile-tab.active .profile-tab__delete { display: inline; }
+.profile-tab.active .profile-tab__delete:hover { color: #fca5a5; opacity: 1; }
+
+#btn-add-profile,
+#btn-settings {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+#btn-add-profile:hover, #btn-settings:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+#sync-status {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 90px;
+  text-align: right;
+}
+#sync-status.error { color: var(--danger); }
+
+/* ─── Dial grid ─────────────────────────────────────────────────────────────── */
+#dial-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--dial-size), 1fr));
+  gap: 20px;
+  padding: 32px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+/* ─── Single dial card ───────────────────────────────────────────────────────── */
+.dial-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 12px 14px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--text);
+  transition: transform var(--transition), box-shadow var(--transition);
+  overflow: hidden;
+  user-select: none;
+}
+.dial-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(0,0,0,.12);
+}
+
+.dial-card__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  object-fit: contain;
+  flex-shrink: 0;
+  display: block;
+}
+
+.dial-card__avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.dial-card__title {
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  word-break: break-word;
+  line-height: 1.3;
+  max-width: 100%;
+}
+
+/* Right-click menu with edit/delete buttons */
+.dial-card__actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
+  z-index: 2;
+}
+.dial-card.context-open .dial-card__actions { display: flex; }
+
+.dial-card__actions button {
+  background: var(--surface-2);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background var(--transition);
+  color: var(--text);
+}
+.dial-card__actions button:hover { background: var(--border); }
+.dial-card__actions .btn-delete:hover { color: var(--danger); }
+
+/* Order buttons */
+.dial-card__order {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  display: none;
+  gap: 2px;
+}
+.dial-card:hover .dial-card__order { display: flex; }
+.dial-card__order button {
+  background: var(--surface-2);
+  border: none;
+  border-radius: 4px;
+  padding: 2px 5px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.dial-card__order button:hover { color: var(--text); }
+
+/* ─── Add dial card ──────────────────────────────────────────────────────────── */
+.dial-card--add {
+  border-style: dashed;
+  color: var(--text-muted);
+  background: transparent;
+}
+.dial-card--add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.dial-card--add .dial-card__plus {
+  font-size: 36px;
+  line-height: 1;
+}
+.dial-card--add .dial-card__title {
+  font-size: 13px;
+}
+
+/* ─── Empty state ─────────────────────────────────────────────────────────────── */
+#empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--text-muted);
+  padding: 60px 20px;
+}
+#empty-state p { font-size: 16px; margin-bottom: 8px; }
+#empty-state small { font-size: 13px; }
+
+/* ─── Modals ─────────────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 16px;
+}
+.modal-overlay.hidden { display: none; }
+
+.modal {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 32px rgba(0,0,0,.2);
+  padding: 28px;
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.modal--small { max-width: 320px; }
+
+.modal h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.modal label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: -8px;
+}
+
+.hint {
+  font-weight: 400;
+  font-size: 11px;
+}
+
+.modal input[type="text"],
+.modal input[type="url"] {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text);
+  outline: none;
+  transition: border-color var(--transition);
+}
+.modal input[type="text"]:focus,
+.modal input[type="url"]:focus {
+  border-color: var(--accent);
+}
+
+.icon-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.icon-preview {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.icon-preview.hidden { display: none; }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+/* ─── Buttons ────────────────────────────────────────────────────────────────── */
+.btn-primary {
+  padding: 9px 20px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.btn-primary:hover { background: var(--accent-dark); }
+
+.btn-secondary {
+  padding: 9px 20px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.btn-secondary:hover { background: var(--border); }
+
+.btn-danger {
+  padding: 6px 12px;
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: opacity var(--transition);
+}
+.btn-danger:hover { opacity: .85; }
+.btn-danger.hidden { display: none; }
+
+/* ─── No-config banner ────────────────────────────────────────────────────────── */
+#no-config-banner {
+  display: none;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-size: 14px;
+  margin: 20px 32px 0;
+}
+#no-config-banner a { color: inherit; font-weight: 600; }
+
+@media (prefers-color-scheme: dark) {
+  #no-config-banner {
+    background: #422006;
+    color: #fde68a;
+    border-color: #78350f;
+  }
+}

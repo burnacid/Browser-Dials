@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Browser Dials — Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="page-header">
+      <img src="icons/icon48.png" alt="" class="logo" />
+      <div>
+        <h1>Browser Dials</h1>
+        <p class="subtitle">Settings (Local Only)</p>
+      </div>
+    </header>
+
+    <!-- ── Preferences ──────────────────────────────────────────────────── -->
+    <section class="card" id="section-prefs">
+      <h2>Preferences</h2>
+
+      <label class="toggle-row">
+        <input id="pref-new-tab" type="checkbox" />
+        <span class="toggle-label">Open dials in a new tab</span>
+      </label>
+    </section>
+
+    <!-- ── Profiles ─────────────────────────────────────────────────────── -->
+    <section class="card" id="section-profiles">
+      <h2>Profiles</h2>
+      <p class="section-hint">Manage your dial profiles. Deleting a profile removes all its dials.</p>
+
+      <ul id="profile-list" class="item-list"></ul>
+
+      <div class="field-row" style="margin-top: 12px">
+        <input id="new-profile-name" type="text" placeholder="New profile name" maxlength="100" />
+        <button id="btn-add-profile" class="btn-primary">Add Profile</button>
+      </div>
+    </section>
+
+    <!-- ── Backup / Restore ─────────────────────────────────────────────── -->
+    <section class="card" id="section-backup">
+      <h2>Backup / Restore</h2>
+      <p class="section-hint">Export your local dials to JSON, or import a backup file.</p>
+      <div class="field-row">
+        <button id="btn-export" class="btn-secondary">Export JSON</button>
+        <button id="btn-import" class="btn-secondary">Import JSON</button>
+        <input id="import-file" type="file" accept="application/json" hidden />
+        <span id="backup-status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <!-- ── Danger ────────────────────────────────────────────────────────── -->
+    <section class="card card--danger" id="section-danger">
+      <h2>Danger Zone</h2>
+      <div class="field-row">
+        <button id="btn-clear-local" class="btn-danger">Clear local data</button>
+        <span class="field-hint" style="flex:1">Removes cached dials from this browser only.</span>
+      </div>
+    </section>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

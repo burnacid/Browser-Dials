@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>New Tab</title>
+  <link rel="stylesheet" href="newtab.css" />
+</head>
+<body>
+  <!-- ── Profile tab bar ───────────────────────────────────────────────── -->
+  <header id="header">
+    <nav id="profile-tabs" role="tablist" aria-label="Profiles"></nav>
+    <button id="btn-add-profile" title="Add profile" aria-label="Add profile">＋</button>
+    <button id="btn-settings"   title="Settings"    aria-label="Open settings">⚙</button>
+    <div id="sync-status" aria-live="polite"></div>
+  </header>
+
+  <!-- ── Dial grid ─────────────────────────────────────────────────────── -->
+  <main id="dial-grid" role="main"></main>
+
+  <!-- ── Edit / Add dial modal ─────────────────────────────────────────── -->
+  <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal">
+      <h2 id="modal-title">Add Dial</h2>
+
+      <label for="modal-title-input">Title</label>
+      <input id="modal-title-input" type="text" maxlength="200" placeholder="My Site" autocomplete="off" />
+
+      <label for="modal-url-input">URL</label>
+      <input id="modal-url-input" type="url" maxlength="2048" placeholder="https://example.com" autocomplete="off" />
+
+      <label for="modal-icon-input">Custom icon <span class="hint">(optional, max 1 MB)</span></label>
+      <div class="icon-preview-row">
+        <img id="modal-icon-preview" class="icon-preview hidden" alt="Icon preview" />
+        <input id="modal-icon-input" type="file" accept="image/*" />
+        <button id="modal-icon-remove" class="btn-danger hidden" type="button">Remove icon</button>
+      </div>
+
+      <div class="modal-actions">
+        <button id="modal-cancel" type="button" class="btn-secondary">Cancel</button>
+        <button id="modal-save"   type="button" class="btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Add profile modal ─────────────────────────────────────────────── -->
+  <div id="profile-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title">
+    <div class="modal modal--small">
+      <h2 id="profile-modal-title">New Profile</h2>
+      <label for="profile-name-input">Profile name</label>
+      <input id="profile-name-input" type="text" maxlength="100" placeholder="Work" autocomplete="off" />
+      <div class="modal-actions">
+        <button id="profile-modal-cancel" type="button" class="btn-secondary">Cancel</button>
+        <button id="profile-modal-save"   type="button" class="btn-primary">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="newtab.js"></script>
+</body>
+</html>
