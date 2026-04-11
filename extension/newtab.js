@@ -499,6 +499,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 function renderAll() {
   applyProfileTheme(getActiveProfile());
   renderProfileTabs();
+  updateProfileActionButtons();
   renderDials();
 }
 
@@ -544,25 +545,21 @@ function renderProfileTabs() {
     const nameSpan = document.createElement('span');
     nameSpan.textContent = profile.name;
 
-    const renameBtn = document.createElement('button');
-    renameBtn.className = 'profile-tab__rename';
-    renameBtn.title = 'Rename';
-    renameBtn.textContent = '✏';
-    renameBtn.addEventListener('click', e => { e.stopPropagation(); promptRenameProfile(profile); });
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'profile-tab__delete';
-    deleteBtn.title = 'Delete profile';
-    deleteBtn.textContent = '✕';
-    deleteBtn.addEventListener('click', e => { e.stopPropagation(); confirmDeleteProfile(profile); });
-
     btn.appendChild(nameSpan);
-    btn.appendChild(renameBtn);
-    btn.appendChild(deleteBtn);
     btn.addEventListener('click', () => switchProfile(profile.id));
     nav.appendChild(btn);
   }
   renderCache.profileTabsKey = key;
+}
+
+function updateProfileActionButtons() {
+  const editBtn = document.getElementById('btn-edit-profile');
+  const activeProfile = getActiveProfile();
+  const hasActiveProfile = !!activeProfile;
+
+  editBtn.disabled = !hasActiveProfile;
+  editBtn.title = hasActiveProfile ? `Rename ${activeProfile.name}` : 'Rename active profile';
+  editBtn.setAttribute('aria-label', hasActiveProfile ? `Rename ${activeProfile.name}` : 'Rename active profile');
 }
 
 function renderDials() {
@@ -2284,6 +2281,11 @@ async function syncNowFromTopbar() {
 
 // ─── Event listeners ──────────────────────────────────────────────────────────
 document.getElementById('btn-add-profile').addEventListener('click', openAddProfileModal);
+document.getElementById('btn-edit-profile').addEventListener('click', () => {
+  const activeProfile = getActiveProfile();
+  if (!activeProfile) return;
+  void promptRenameProfile(activeProfile);
+});
 document.getElementById('btn-settings').addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
