@@ -4,6 +4,12 @@
 const STORAGE_KEY_STATE       = 'dials_state';      // { profiles: […] }
 const STORAGE_KEY_ACTIVE      = 'active_profile_id';
 const STORAGE_KEY_OPEN_IN_TAB = 'open_in_new_tab';
+const STORAGE_KEY_SPLASH_DATA = 'splash_bg_data';
+const STORAGE_KEY_SPLASH_ON   = 'splash_bg_enabled';
+const STORAGE_KEY_SPLASH_PUBLIC_ON = 'splash_public_enabled';
+const STORAGE_KEY_SPLASH_PROVIDER  = 'splash_public_provider';
+const STORAGE_KEY_SPLASH_QUERY     = 'splash_public_query';
+const STORAGE_KEY_SPLASH_REFRESH   = 'splash_public_refresh';
 
 // Letter-avatar palette (colour per first letter)
 const AVATAR_COLOURS = [
@@ -15,6 +21,12 @@ const AVATAR_COLOURS = [
 let state = { profiles: [] };  // { profiles: [{ id, name, position, dials: [] }] }
 let activeProfileId = null;
 let openInNewTab = false;
+let splashData = '';
+let splashOn   = false;
+let splashPublicOn = false;
+let splashProvider = 'picsum';
+let splashQuery = '';
+let splashRefreshToken = 0;
 
 // Modal edit context
 let editingDialId  = null;   // null → adding new dial
@@ -26,11 +38,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     STORAGE_KEY_STATE,
     STORAGE_KEY_ACTIVE,
     STORAGE_KEY_OPEN_IN_TAB,
+    STORAGE_KEY_SPLASH_DATA,
+    STORAGE_KEY_SPLASH_ON,
+    STORAGE_KEY_SPLASH_PUBLIC_ON,
+    STORAGE_KEY_SPLASH_PROVIDER,
+    STORAGE_KEY_SPLASH_QUERY,
+    STORAGE_KEY_SPLASH_REFRESH,
   ]);
 
   state         = stored[STORAGE_KEY_STATE]       || { profiles: [] };
   activeProfileId = stored[STORAGE_KEY_ACTIVE]    || null;
   openInNewTab  = stored[STORAGE_KEY_OPEN_IN_TAB] ?? false;
+  splashData    = stored[STORAGE_KEY_SPLASH_DATA] || '';
+  splashOn      = stored[STORAGE_KEY_SPLASH_ON] ?? false;
+  splashPublicOn = stored[STORAGE_KEY_SPLASH_PUBLIC_ON] ?? false;
+  splashProvider = stored[STORAGE_KEY_SPLASH_PROVIDER] || 'picsum';
+  splashQuery = stored[STORAGE_KEY_SPLASH_QUERY] || '';
+  splashRefreshToken = stored[STORAGE_KEY_SPLASH_REFRESH] || 0;
 
   // Default to first profile if active not found
   if (!state.profiles.find(p => p.id === activeProfileId)) {
@@ -38,6 +62,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   renderAll();
+  applySplashBackground();
   setSyncStatus('Local only');
 });
 
@@ -53,6 +78,30 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (changes[STORAGE_KEY_OPEN_IN_TAB]) {
     openInNewTab = changes[STORAGE_KEY_OPEN_IN_TAB].newValue ?? false;
+  }
+  if (changes[STORAGE_KEY_SPLASH_DATA]) {
+    splashData = changes[STORAGE_KEY_SPLASH_DATA].newValue || '';
+    applySplashBackground();
+  }
+  if (changes[STORAGE_KEY_SPLASH_ON]) {
+    splashOn = changes[STORAGE_KEY_SPLASH_ON].newValue ?? false;
+    applySplashBackground();
+  }
+  if (changes[STORAGE_KEY_SPLASH_PUBLIC_ON]) {
+    splashPublicOn = changes[STORAGE_KEY_SPLASH_PUBLIC_ON].newValue ?? false;
+    applySplashBackground();
+  }
+  if (changes[STORAGE_KEY_SPLASH_PROVIDER]) {
+    splashProvider = changes[STORAGE_KEY_SPLASH_PROVIDER].newValue || 'picsum';
+    applySplashBackground();
+  }
+  if (changes[STORAGE_KEY_SPLASH_QUERY]) {
+    splashQuery = changes[STORAGE_KEY_SPLASH_QUERY].newValue || '';
+    applySplashBackground();
+  }
+  if (changes[STORAGE_KEY_SPLASH_REFRESH]) {
+    splashRefreshToken = changes[STORAGE_KEY_SPLASH_REFRESH].newValue || Date.now();
+    applySplashBackground();
   }
 });
 
@@ -250,6 +299,36 @@ function closeAllCardMenus() {
   document.querySelectorAll('.dial-card.context-open').forEach(card => {
     card.classList.remove('context-open');
   });
+}
+
+function applySplashBackground() {
+  const publicUrl = getPublicSplashUrl();
+  const selectedImage = splashPublicOn ? publicUrl : splashData;
+
+  if (splashOn && selectedImage) {
+    document.body.classList.add('splash-enabled');
+    const safeData = selectedImage.replace(/"/g, '\\"');
+    document.documentElement.style.setProperty('--splash-image', `url("${safeData}")`);
+  } else {
+    document.body.classList.remove('splash-enabled');
+    document.documentElement.style.removeProperty('--splash-image');
+  }
+}
+
+function getPublicSplashUrl() {
+  const refresh = splashRefreshToken || Date.now();
+  const cleanQuery = encodeURIComponent((splashQuery || '').trim());
+
+  if (splashProvider === 'unsplash') {
+    const queryPart = cleanQuery ? `?${cleanQuery}&` : '?';
+    return `https://source.unsplash.com/1920x1080/${queryPart}sig=${refresh}`;
+  }
+
+  // Default: picsum
+  if (cleanQuery) {
+    return `https://picsum.photos/seed/${cleanQuery}-${refresh}/1920/1080`;
+  }
+  return `https://picsum.photos/1920/1080?random=${refresh}`;
 }
 
 // ─── Profile actions ──────────────────────────────────────────────────────────

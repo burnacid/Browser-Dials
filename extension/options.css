@@ -1,33 +1,38 @@
 /* ─── Variables & reset ──────────────────────────────────────────────────────── */
 :root {
-  --bg:          #f0f2f5;
-  --surface:     #ffffff;
-  --border:      #d1d5db;
+  --bg:          #eef2ff;
+  --surface:     #ffffffcc;
+  --surface-solid:#ffffff;
+  --border:      #c7d2fe;
   --text:        #111827;
-  --text-muted:  #6b7280;
-  --accent:      #2563eb;
-  --accent-dark: #1d4ed8;
+  --text-muted:  #64748b;
+  --accent:      #0f766e;
+  --accent-dark: #115e59;
   --danger:      #dc2626;
-  --radius:      12px;
-  --shadow:      0 2px 8px rgba(0,0,0,.07);
+  --radius:      16px;
+  --shadow:      0 10px 30px rgba(15, 23, 42, .10);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg:        #0f1117;
-    --surface:   #1c1f26;
-    --border:    #374151;
+    --bg:        #0b1020;
+    --surface:   #151a2fcc;
+    --surface-solid:#151a2f;
+    --border:    #334155;
     --text:      #f9fafb;
     --text-muted:#9ca3af;
-    --shadow:    0 2px 8px rgba(0,0,0,.4);
+    --shadow:    0 12px 30px rgba(0,0,0,.45);
   }
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background: var(--bg);
+  font-family: 'Segoe UI Variable', 'Aptos', 'Segoe UI', sans-serif;
+  background:
+    radial-gradient(1200px 500px at 0% 0%, rgba(15, 118, 110, 0.14), transparent 70%),
+    radial-gradient(900px 450px at 100% 10%, rgba(14, 165, 233, 0.18), transparent 68%),
+    var(--bg);
   color: var(--text);
   font-size: 15px;
   padding: 32px 16px 64px;
@@ -69,6 +74,8 @@ body {
 /* ─── Card ───────────────────────────────────────────────────────────────────── */
 .card {
   background: var(--surface);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -112,7 +119,7 @@ input[type="text"],
 input[type="url"],
 input[type="password"] {
   padding: 9px 12px;
-  background: var(--bg);
+  background: var(--surface-solid);
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 14px;
@@ -120,6 +127,21 @@ input[type="password"] {
   width: 100%;
   outline: none;
   transition: border-color 120ms ease;
+}
+
+select {
+  padding: 9px 12px;
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text);
+  width: 100%;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+select:focus {
+  border-color: var(--accent);
 }
 input[type="text"]:focus,
 input[type="url"]:focus,
@@ -163,7 +185,7 @@ input[type="password"]:focus {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: var(--bg);
+  background: var(--surface-solid);
   border: 1px solid var(--border);
   border-radius: 8px;
   gap: 10px;
@@ -196,7 +218,7 @@ input[type="password"]:focus {
 
 .btn-secondary {
   padding: 9px 18px;
-  background: var(--bg);
+  background: var(--surface-solid);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -222,7 +244,7 @@ input[type="password"]:focus {
 .btn-danger:hover { opacity: .85; }
 
 .btn-icon {
-  background: var(--bg);
+  background: var(--surface-solid);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 9px 12px;
@@ -247,3 +269,20 @@ input[type="password"]:focus {
 }
 #backup-status.ok  { color: #16a34a; }
 #backup-status.err { color: var(--danger); }
+
+#splash-status {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+#splash-status.ok  { color: #16a34a; }
+#splash-status.err { color: var(--danger); }
+
+.splash-preview {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+.splash-preview.hidden { display: none; }

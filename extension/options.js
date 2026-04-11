@@ -3,6 +3,12 @@
 const STORAGE_KEY_STATE       = 'dials_state';
 const STORAGE_KEY_ACTIVE      = 'active_profile_id';
 const STORAGE_KEY_OPEN_IN_TAB = 'open_in_new_tab';
+const STORAGE_KEY_SPLASH_DATA = 'splash_bg_data';
+const STORAGE_KEY_SPLASH_ON   = 'splash_bg_enabled';
+const STORAGE_KEY_SPLASH_PUBLIC_ON = 'splash_public_enabled';
+const STORAGE_KEY_SPLASH_PROVIDER  = 'splash_public_provider';
+const STORAGE_KEY_SPLASH_QUERY     = 'splash_public_query';
+const STORAGE_KEY_SPLASH_REFRESH   = 'splash_public_refresh';
 
 let state = { profiles: [] };
 
@@ -11,10 +17,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   const stored = await chromeGet([
     STORAGE_KEY_STATE,
     STORAGE_KEY_OPEN_IN_TAB,
+    STORAGE_KEY_SPLASH_DATA,
+    STORAGE_KEY_SPLASH_ON,
+    STORAGE_KEY_SPLASH_PUBLIC_ON,
+    STORAGE_KEY_SPLASH_PROVIDER,
+    STORAGE_KEY_SPLASH_QUERY,
   ]);
 
   state = stored[STORAGE_KEY_STATE] || { profiles: [] };
   document.getElementById('pref-new-tab').checked = stored[STORAGE_KEY_OPEN_IN_TAB] ?? false;
+  document.getElementById('pref-splash-enabled').checked = stored[STORAGE_KEY_SPLASH_ON] ?? false;
+  document.getElementById('pref-splash-public').checked = stored[STORAGE_KEY_SPLASH_PUBLIC_ON] ?? false;
+  document.getElementById('splash-provider').value = stored[STORAGE_KEY_SPLASH_PROVIDER] || 'picsum';
+  document.getElementById('splash-query').value = stored[STORAGE_KEY_SPLASH_QUERY] || '';
+
+  const splashPreview = document.getElementById('splash-preview');
+  const splashData = stored[STORAGE_KEY_SPLASH_DATA] || '';
+  if (splashData) {
+    splashPreview.src = splashData;
+    splashPreview.classList.remove('hidden');
+  }
+
+  updateSplashControlState();
 
   renderProfiles();
 });
@@ -164,6 +188,65 @@ document.getElementById('pref-new-tab').addEventListener('change', async e => {
   await chrome.storage.local.set({ [STORAGE_KEY_OPEN_IN_TAB]: e.target.checked });
 });
 
+document.getElementById('pref-splash-enabled').addEventListener('change', async e => {
+  await chrome.storage.local.set({ [STORAGE_KEY_SPLASH_ON]: e.target.checked });
+});
+
+document.getElementById('pref-splash-public').addEventListener('change', async e => {
+  await chrome.storage.local.set({ [STORAGE_KEY_SPLASH_PUBLIC_ON]: e.target.checked });
+  updateSplashControlState();
+});
+
+document.getElementById('splash-provider').addEventListener('change', async e => {
+  await chrome.storage.local.set({ [STORAGE_KEY_SPLASH_PROVIDER]: e.target.value });
+});
+
+document.getElementById('splash-query').addEventListener('change', async e => {
+  await chrome.storage.local.set({ [STORAGE_KEY_SPLASH_QUERY]: e.target.value.trim() });
+});
+
+async function uploadSplashImage(file) {
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) {
+    setSplashStatus('Image too large (max 2 MB).', 'err');
+    return;
+  }
+
+  const data = await readFileAsDataUrl(file);
+  await chrome.storage.local.set({
+    [STORAGE_KEY_SPLASH_DATA]: data,
+    [STORAGE_KEY_SPLASH_ON]: true,
+  });
+
+  const preview = document.getElementById('splash-preview');
+  preview.src = data;
+  preview.classList.remove('hidden');
+  document.getElementById('pref-splash-enabled').checked = true;
+  setSplashStatus('Splash image saved.', 'ok');
+}
+
+async function clearSplashImage() {
+  await chrome.storage.local.remove([STORAGE_KEY_SPLASH_DATA]);
+  const preview = document.getElementById('splash-preview');
+  preview.src = '';
+  preview.classList.add('hidden');
+  setSplashStatus('Splash image cleared.', 'ok');
+}
+
+async function refreshPublicSplash() {
+  await chrome.storage.local.set({ [STORAGE_KEY_SPLASH_REFRESH]: Date.now() });
+  setSplashStatus('Requested a fresh public background.', 'ok');
+}
+
+function updateSplashControlState() {
+  const usingPublic = document.getElementById('pref-splash-public').checked;
+  document.getElementById('splash-provider').disabled = !usingPublic;
+  document.getElementById('splash-query').disabled = !usingPublic;
+  document.getElementById('btn-splash-refresh').disabled = !usingPublic;
+  document.getElementById('btn-splash-upload').disabled = usingPublic;
+  document.getElementById('btn-splash-clear').disabled = usingPublic;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 async function saveState() {
   await chrome.storage.local.set({ [STORAGE_KEY_STATE]: state });
@@ -175,8 +258,23 @@ function setBackupStatus(msg, type) {
   el.className   = type;
 }
 
+function setSplashStatus(msg, type) {
+  const el  = document.getElementById('splash-status');
+  el.textContent = msg;
+  el.className   = type;
+}
+
 function uuid() {
   return crypto.randomUUID();
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
 }
 
 async function chromeGet(keys) {
@@ -196,6 +294,26 @@ document.getElementById('import-file').addEventListener('change', e => {
     importJson(file);
   }
   e.target.value = '';
+});
+
+document.getElementById('btn-splash-upload').addEventListener('click', () => {
+  document.getElementById('splash-file').click();
+});
+
+document.getElementById('splash-file').addEventListener('change', e => {
+  const file = e.target.files?.[0];
+  if (file) {
+    uploadSplashImage(file).catch(err => setSplashStatus(err.message, 'err'));
+  }
+  e.target.value = '';
+});
+
+document.getElementById('btn-splash-clear').addEventListener('click', () => {
+  clearSplashImage().catch(err => setSplashStatus(err.message, 'err'));
+});
+
+document.getElementById('btn-splash-refresh').addEventListener('click', () => {
+  refreshPublicSplash().catch(err => setSplashStatus(err.message, 'err'));
 });
 
 document.getElementById('new-profile-name').addEventListener('keydown', e => {

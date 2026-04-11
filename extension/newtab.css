@@ -1,30 +1,31 @@
 /* ─── CSS Custom properties ─────────────────────────────────────────────────── */
 :root {
-  --bg:          #f0f2f5;
-  --surface:     #ffffff;
-  --surface-2:   #e8eaed;
-  --border:      #d1d5db;
+  --bg:          #edf4ff;
+  --surface:     #ffffffc9;
+  --surface-2:   #eef3ff;
+  --border:      #cdd8f3;
   --text:        #111827;
-  --text-muted:  #6b7280;
-  --accent:      #2563eb;
-  --accent-dark: #1d4ed8;
+  --text-muted:  #64748b;
+  --accent:      #0ea5a1;
+  --accent-dark: #0f766e;
   --danger:      #dc2626;
-  --shadow:      0 2px 8px rgba(0,0,0,.08);
-  --radius:      12px;
-  --dial-size:   140px;
+  --shadow:      0 10px 30px rgba(15, 23, 42, .12);
+  --radius:      16px;
+  --dial-size:   156px;
   --header-h:    52px;
   --transition:  160ms ease;
+  --splash-opacity: 0;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg:         #0f1117;
-    --surface:    #1c1f26;
-    --surface-2:  #252830;
-    --border:     #374151;
+    --bg:         #0a1020;
+    --surface:    #151c31cc;
+    --surface-2:  #1d2740;
+    --border:     #30415f;
     --text:       #f9fafb;
-    --text-muted: #9ca3af;
-    --shadow:     0 2px 8px rgba(0,0,0,.4);
+    --text-muted: #9fb0c7;
+    --shadow:     0 12px 30px rgba(0,0,0,.48);
   }
 }
 
@@ -32,10 +33,44 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Segoe UI Variable', 'Aptos', 'Segoe UI', sans-serif;
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  position: relative;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: var(--splash-image, none);
+  background-size: cover;
+  background-position: center;
+  opacity: var(--splash-opacity);
+  transition: opacity 220ms ease;
+  z-index: -2;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(1100px 420px at -8% -8%, rgba(14, 165, 161, .22), transparent 70%),
+    radial-gradient(900px 350px at 102% 8%, rgba(56, 189, 248, .22), transparent 72%),
+    radial-gradient(700px 320px at 50% 110%, rgba(14, 165, 161, .18), transparent 72%),
+    linear-gradient(180deg, rgba(255,255,255,.24), rgba(255,255,255,.08));
+  z-index: -1;
+  pointer-events: none;
+}
+
+body.splash-enabled {
+  --splash-opacity: .42;
+}
+
+body.splash-enabled::after {
+  background: none;
 }
 
 /* ─── Header / Profile tabs ─────────────────────────────────────────────────── */
@@ -48,7 +83,9 @@ body {
   gap: 4px;
   height: var(--header-h);
   padding: 0 16px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
   box-shadow: var(--shadow);
 }
@@ -80,7 +117,7 @@ body {
 }
 .profile-tab:hover { background: var(--surface-2); color: var(--text); }
 .profile-tab.active {
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent-dark) 78%, #ffffff 22%));
   color: #fff;
 }
 
@@ -141,8 +178,8 @@ body {
 #dial-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--dial-size), 1fr));
-  gap: 20px;
-  padding: 32px;
+  gap: 18px;
+  padding: 30px;
   max-width: 1280px;
   margin: 0 auto;
 }
@@ -154,8 +191,10 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  padding: 20px 12px 14px;
-  background: var(--surface);
+  padding: 18px 12px 14px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   border-radius: var(--radius);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
@@ -168,12 +207,12 @@ body {
 }
 .dial-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 6px 20px rgba(0,0,0,.12);
+  box-shadow: 0 14px 28px rgba(0,0,0,.18);
 }
 
 .dial-card__icon {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   border-radius: 10px;
   object-fit: contain;
   flex-shrink: 0;
@@ -181,8 +220,8 @@ body {
 }
 
 .dial-card__avatar {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   border-radius: 10px;
   display: flex;
   align-items: center;
@@ -256,7 +295,7 @@ body {
 .dial-card--add {
   border-style: dashed;
   color: var(--text-muted);
-  background: transparent;
+  background: color-mix(in srgb, var(--surface) 68%, transparent);
 }
 .dial-card--add:hover {
   border-color: var(--accent);
@@ -294,7 +333,9 @@ body {
 .modal-overlay.hidden { display: none; }
 
 .modal {
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border-radius: var(--radius);
   border: 1px solid var(--border);
   box-shadow: 0 8px 32px rgba(0,0,0,.2);

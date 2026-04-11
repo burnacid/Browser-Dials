@@ -24,6 +24,47 @@
         <input id="pref-new-tab" type="checkbox" />
         <span class="toggle-label">Open dials in a new tab</span>
       </label>
+
+      <label class="toggle-row">
+        <input id="pref-splash-enabled" type="checkbox" />
+        <span class="toggle-label">Enable splash background on New Tab</span>
+      </label>
+    </section>
+
+    <!-- ── Splash Background ─────────────────────────────────────────────── -->
+    <section class="card" id="section-splash">
+      <h2>Splash Background</h2>
+      <p class="section-hint">Use a local image or a public image service for the New Tab background.</p>
+
+      <label class="toggle-row">
+        <input id="pref-splash-public" type="checkbox" />
+        <span class="toggle-label">Use public splash service</span>
+      </label>
+
+      <div class="field">
+        <label for="splash-provider">Public provider</label>
+        <select id="splash-provider">
+          <option value="picsum">Picsum (random photos)</option>
+          <option value="unsplash">Unsplash Source (query-based)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="splash-query">Topic/query (optional)</label>
+        <input id="splash-query" type="text" placeholder="nature, mountains, minimal" maxlength="120" />
+      </div>
+
+      <div class="field-row">
+        <button id="btn-splash-refresh" class="btn-secondary">Refresh public background</button>
+      </div>
+
+      <div class="field-row">
+        <button id="btn-splash-upload" class="btn-secondary">Upload image</button>
+        <button id="btn-splash-clear" class="btn-secondary">Clear image</button>
+        <input id="splash-file" type="file" accept="image/*" hidden />
+        <span id="splash-status" aria-live="polite"></span>
+      </div>
+      <img id="splash-preview" class="splash-preview hidden" alt="Splash preview" />
     </section>
 
     <!-- ── Profiles ─────────────────────────────────────────────────────── -->
