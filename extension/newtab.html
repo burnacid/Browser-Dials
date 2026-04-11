@@ -33,7 +33,7 @@
       <label for="modal-title-input">Title</label>
       <input id="modal-title-input" type="text" maxlength="200" placeholder="My Site" autocomplete="off" />
 
-      <label class="check-row" for="modal-is-folder">
+      <label id="modal-folder-row" class="check-row" for="modal-is-folder">
         <input id="modal-is-folder" type="checkbox" />
         <span>Create as folder</span>
       </label>
@@ -80,15 +80,17 @@
 
   <!-- ── Folder contents modal ─────────────────────────────────────────── -->
   <div id="folder-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="folder-modal-title">
-    <div class="modal">
+    <div class="modal modal--folder">
       <h2 id="folder-modal-title">Folder</h2>
-      <div id="folder-items" class="folder-items"></div>
+      <div id="folder-items" class="folder-tile-grid"></div>
       <div class="modal-actions modal-actions--spread">
         <button id="folder-add-link" type="button" class="btn-secondary">Add link</button>
         <button id="folder-close" type="button" class="btn-primary">Close</button>
       </div>
     </div>
   </div>
+
+  <button id="btn-splash-refresh-tab" class="splash-refresh-tab hidden" type="button" title="Refresh public background" aria-label="Refresh public background">↻</button>
 
 
   <script src="newtab.js"></script>

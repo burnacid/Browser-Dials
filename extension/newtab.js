@@ -1,5 +1,27 @@
 'use strict';
 
+// ─── Debug Mode ──────────────────────────────────────────────────────────────
+// Enable via console: localStorage.setItem('DEBUG_BROWSER_DIALS', 'true')
+// Disable via console: localStorage.removeItem('DEBUG_BROWSER_DIALS')
+let DEBUG_MODE = localStorage.getItem('DEBUG_BROWSER_DIALS') === 'true';
+window.toggleDebug = (enable = !DEBUG_MODE) => {
+  DEBUG_MODE = enable;
+  if (enable) {
+    localStorage.setItem('DEBUG_BROWSER_DIALS', 'true');
+    console.log('%c[Browser Dials] Debug mode enabled', 'color: #0f766e; font-weight: bold');
+  } else {
+    localStorage.removeItem('DEBUG_BROWSER_DIALS');
+    console.log('%c[Browser Dials] Debug mode disabled', 'color: #64748b');
+  }
+};
+window.isDebugMode = () => DEBUG_MODE;
+
+function debug(...args) {
+  if (DEBUG_MODE) {
+    console.log('%c[Browser Dials]', 'color: #0f766e; font-weight: bold', ...args);
+  }
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 const STORAGE_KEY_STATE       = 'dials_state';      // { profiles: […] }
 const STORAGE_KEY_ACTIVE      = 'active_profile_id';
@@ -9,6 +31,7 @@ const STORAGE_KEY_SYNC_SERVER_URL = 'sync_server_url';
 const STORAGE_KEY_SYNC_API_KEY = 'sync_api_key';
 const STORAGE_KEY_SYNC_USERNAME = 'sync_username';
 const STORAGE_KEY_SYNC_PASSWORD = 'sync_password';
+const STORAGE_KEY_SYNC_LAST_PULL_AT = 'sync_last_pull_at';
 const STORAGE_KEY_SEARCH_ENABLED = 'search_enabled';
 const STORAGE_KEY_SEARCH_ENGINE  = 'search_engine';
 const STORAGE_KEY_SPLASH_DATA = 'splash_bg_data';
@@ -17,6 +40,12 @@ const STORAGE_KEY_SPLASH_PUBLIC_ON = 'splash_public_enabled';
 const STORAGE_KEY_SPLASH_PROVIDER  = 'splash_public_provider';
 const STORAGE_KEY_SPLASH_QUERY     = 'splash_public_query';
 const STORAGE_KEY_SPLASH_REFRESH   = 'splash_public_refresh';
+const STORAGE_KEY_SPLASH_OPACITY   = 'splash_opacity';
+const STORAGE_KEY_SPLASH_OPACITY_UPDATED_AT = 'splash_opacity_updated_at';
+const STORAGE_KEY_SPLASH_UNSPLASH_KEY = 'splash_unsplash_access_key';
+const STORAGE_KEY_SPLASH_PUBLIC_URL = 'splash_public_cached_url';
+const STORAGE_KEY_SPLASH_PUBLIC_LAST_FETCH = 'splash_public_last_fetch';
+const SYNC_PULL_INTERVAL_MS = 60 * 60 * 1000;
 
 // Letter-avatar palette (colour per first letter)
 const AVATAR_COLOURS = [
@@ -33,6 +62,7 @@ let syncServerUrl = '';
 let syncApiKey = '';
 let syncUsername = '';
 let syncPassword = '';
+let syncLastPullAt = 0;
 let searchEnabled = true;
 let searchEngine = 'google';
 let splashData = '';
@@ -41,15 +71,143 @@ let splashPublicOn = false;
 let splashProvider = 'picsum';
 let splashQuery = '';
 let splashRefreshToken = 0;
+let splashOpacity = 1;
+let splashOpacityUpdatedAt = 0;
+let splashUnsplashKey = '';
+let splashPublicUrl = '';
+let splashPublicLastFetch = 0;
+let splashFetchPromise = null;
 let draggedDialId = null;
 let dragHoverDialId = null;
 let dragHoverMode = null;
 let dragDidMove = false;
+let folderDraggedItemId = null;
+let folderDragHoverItemId = null;
+let folderDragHoverMode = null;
+let folderDragDidMove = false;
+
+function normalizeGridColumns(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  if (!Number.isInteger(n)) return null;
+  if (n < 2 || n > 12) return null;
+  return n;
+}
+
+function normalizeSplashProvider(value) {
+  if (value === 'unsplash' || value === 'usplash') return 'unsplash';
+  return 'picsum';
+}
+
+function normalizeSplashOpacity(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 1;
+  if (n < 0) return 0;
+  if (n > 1) return 1;
+  return Math.round(n * 100) / 100;
+}
+
+function normalizeProfileProperties(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return { ...value };
+}
+
+function getProfileProperties(profile) {
+  const props = normalizeProfileProperties(profile?.properties);
+  // Backward compatibility with older local state snapshots.
+  if (props.grid_columns === undefined) {
+    const legacy = normalizeGridColumns(profile?.grid_columns);
+    if (legacy !== null) props.grid_columns = legacy;
+  }
+  return props;
+}
+
+function getProfileGridColumns(profile) {
+  return normalizeGridColumns(getProfileProperties(profile).grid_columns);
+}
+
+function buildSyncSettingsPayload() {
+  return {
+    open_in_new_tab: openInNewTab,
+    search: {
+      enabled: searchEnabled,
+      engine: searchEngine,
+    },
+    splash: {
+      enabled: splashOn,
+      public_enabled: splashPublicOn,
+      provider: normalizeSplashProvider(splashProvider),
+      query: splashQuery || '',
+      opacity: normalizeSplashOpacity(splashOpacity),
+      opacity_updated_at: Number(splashOpacityUpdatedAt) || 0,
+      unsplash_access_key: splashUnsplashKey || '',
+      cached_url: splashPublicUrl || '',
+      cached_at: Number(splashPublicLastFetch) || 0,
+    },
+  };
+}
+
+async function applyServerSettings(settingsObj) {
+  if (!settingsObj || typeof settingsObj !== 'object' || Array.isArray(settingsObj)) return;
+  const splash = (settingsObj.splash && typeof settingsObj.splash === 'object' && !Array.isArray(settingsObj.splash))
+    ? settingsObj.splash
+    : null;
+  const search = (settingsObj.search && typeof settingsObj.search === 'object' && !Array.isArray(settingsObj.search))
+    ? settingsObj.search
+    : null;
+
+  const patch = {};
+  if (typeof settingsObj.open_in_new_tab === 'boolean') {
+    patch[STORAGE_KEY_OPEN_IN_TAB] = settingsObj.open_in_new_tab;
+  }
+  if (search) {
+    if (typeof search.enabled === 'boolean') patch[STORAGE_KEY_SEARCH_ENABLED] = search.enabled;
+    if (typeof search.engine === 'string' && search.engine) patch[STORAGE_KEY_SEARCH_ENGINE] = search.engine;
+  }
+  if (splash) {
+    if (typeof splash.enabled === 'boolean') patch[STORAGE_KEY_SPLASH_ON] = splash.enabled;
+    if (typeof splash.public_enabled === 'boolean') patch[STORAGE_KEY_SPLASH_PUBLIC_ON] = splash.public_enabled;
+    if (typeof splash.provider === 'string') patch[STORAGE_KEY_SPLASH_PROVIDER] = normalizeSplashProvider(splash.provider);
+    if (typeof splash.query === 'string') patch[STORAGE_KEY_SPLASH_QUERY] = splash.query;
+    const incomingOpacity = normalizeSplashOpacity(splash.opacity);
+    const incomingOpacityUpdatedAt = Number(splash.opacity_updated_at) || 0;
+    const localOpacityUpdatedAt = Number(splashOpacityUpdatedAt) || 0;
+    if (splash.opacity !== undefined) {
+      if (incomingOpacityUpdatedAt > 0) {
+        if (incomingOpacityUpdatedAt >= localOpacityUpdatedAt) {
+          patch[STORAGE_KEY_SPLASH_OPACITY] = incomingOpacity;
+          patch[STORAGE_KEY_SPLASH_OPACITY_UPDATED_AT] = incomingOpacityUpdatedAt;
+        }
+      } else if (localOpacityUpdatedAt === 0) {
+        // Backward compatibility for old servers that did not send a timestamp.
+        patch[STORAGE_KEY_SPLASH_OPACITY] = incomingOpacity;
+      }
+    }
+    if (typeof splash.unsplash_access_key === 'string') patch[STORAGE_KEY_SPLASH_UNSPLASH_KEY] = splash.unsplash_access_key;
+
+    const incomingCachedAt = Number(splash.cached_at);
+    const localCachedAt = Number(splashPublicLastFetch) || 0;
+    const incomingHasCache = Number.isFinite(incomingCachedAt) && incomingCachedAt > 0 && typeof splash.cached_url === 'string' && !!splash.cached_url;
+    const localHasCache = localCachedAt > 0 && typeof splashPublicUrl === 'string' && !!splashPublicUrl;
+
+    // Never let stale/empty server cache wipe a newer local cache.
+    if (incomingHasCache && (!localHasCache || incomingCachedAt >= localCachedAt)) {
+      patch[STORAGE_KEY_SPLASH_PUBLIC_URL] = splash.cached_url;
+      patch[STORAGE_KEY_SPLASH_PUBLIC_LAST_FETCH] = incomingCachedAt;
+    }
+  }
+
+  if (Object.keys(patch).length > 0) {
+    await chrome.storage.local.set(patch);
+  }
+}
 
 // Modal edit context
-let editingDialId  = null;   // null → adding new dial
-let pendingIconData = null;  // data URL for icon selected in the modal
-let openFolderId = null;
+let editingDialId       = null;   // null → adding new dial
+let pendingIconData      = null;   // data URL for icon selected in the modal
+let openFolderId         = null;
+let addingToFolderId     = null;   // non-null when modal is adding/editing an item inside a folder
+let editingFolderItemId  = null;   // non-null when editing an existing folder item
 
 function isFolder(dial) {
   return dial?.type === 'folder';
@@ -66,6 +224,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     STORAGE_KEY_SYNC_API_KEY,
     STORAGE_KEY_SYNC_USERNAME,
     STORAGE_KEY_SYNC_PASSWORD,
+    STORAGE_KEY_SYNC_LAST_PULL_AT,
     STORAGE_KEY_SEARCH_ENABLED,
     STORAGE_KEY_SEARCH_ENGINE,
     STORAGE_KEY_SPLASH_DATA,
@@ -74,6 +233,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     STORAGE_KEY_SPLASH_PROVIDER,
     STORAGE_KEY_SPLASH_QUERY,
     STORAGE_KEY_SPLASH_REFRESH,
+    STORAGE_KEY_SPLASH_OPACITY,
+    STORAGE_KEY_SPLASH_OPACITY_UPDATED_AT,
+    STORAGE_KEY_SPLASH_UNSPLASH_KEY,
+    STORAGE_KEY_SPLASH_PUBLIC_URL,
+    STORAGE_KEY_SPLASH_PUBLIC_LAST_FETCH,
   ]);
 
   state         = stored[STORAGE_KEY_STATE]       || { profiles: [] };
@@ -84,19 +248,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   syncApiKey = stored[STORAGE_KEY_SYNC_API_KEY] || '';
   syncUsername = stored[STORAGE_KEY_SYNC_USERNAME] || '';
   syncPassword = stored[STORAGE_KEY_SYNC_PASSWORD] || '';
+  syncLastPullAt = Number(stored[STORAGE_KEY_SYNC_LAST_PULL_AT]) || 0;
   searchEnabled = stored[STORAGE_KEY_SEARCH_ENABLED] ?? true;
   searchEngine  = stored[STORAGE_KEY_SEARCH_ENGINE] || 'google';
   splashData    = stored[STORAGE_KEY_SPLASH_DATA] || '';
   splashOn      = stored[STORAGE_KEY_SPLASH_ON] ?? false;
   splashPublicOn = stored[STORAGE_KEY_SPLASH_PUBLIC_ON] ?? false;
-  splashProvider = stored[STORAGE_KEY_SPLASH_PROVIDER] || 'picsum';
+  splashProvider = normalizeSplashProvider(stored[STORAGE_KEY_SPLASH_PROVIDER]);
   splashQuery = stored[STORAGE_KEY_SPLASH_QUERY] || '';
   splashRefreshToken = stored[STORAGE_KEY_SPLASH_REFRESH] || 0;
+  splashOpacity = normalizeSplashOpacity(stored[STORAGE_KEY_SPLASH_OPACITY] ?? 1);
+  splashOpacityUpdatedAt = Number(stored[STORAGE_KEY_SPLASH_OPACITY_UPDATED_AT]) || 0;
+  splashUnsplashKey = stored[STORAGE_KEY_SPLASH_UNSPLASH_KEY] || '';
+  splashPublicUrl = stored[STORAGE_KEY_SPLASH_PUBLIC_URL] || '';
+  splashPublicLastFetch = Number(stored[STORAGE_KEY_SPLASH_PUBLIC_LAST_FETCH]) || 0;
 
   await loadInitialState();
 
   renderAll();
-  applySplashBackground();
+  void applySplashBackground();
+  updatePublicSplashRefreshButton();
   applySearchUi();
   setSyncStatus(syncMode === 'server' ? 'Server sync enabled' : 'Local only');
 });
@@ -120,12 +291,15 @@ chrome.storage.onChanged.addListener((changes, area) => {
     syncApiKey = (changes[STORAGE_KEY_SYNC_API_KEY]?.newValue) ?? syncApiKey;
     syncUsername = (changes[STORAGE_KEY_SYNC_USERNAME]?.newValue) ?? syncUsername;
     syncPassword = (changes[STORAGE_KEY_SYNC_PASSWORD]?.newValue) ?? syncPassword;
-    loadInitialState().then(() => {
+    loadInitialState(true).then(() => {
       renderAll();
       setSyncStatus(syncMode === 'server' ? 'Server sync enabled' : 'Local only');
     }).catch(err => {
       setSyncStatus(`Sync error: ${err.message}`, true);
     });
+  }
+  if (changes[STORAGE_KEY_SYNC_LAST_PULL_AT]) {
+    syncLastPullAt = Number(changes[STORAGE_KEY_SYNC_LAST_PULL_AT].newValue) || 0;
   }
   if (changes[STORAGE_KEY_SEARCH_ENABLED]) {
     searchEnabled = changes[STORAGE_KEY_SEARCH_ENABLED].newValue ?? true;
@@ -136,27 +310,48 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (changes[STORAGE_KEY_SPLASH_DATA]) {
     splashData = changes[STORAGE_KEY_SPLASH_DATA].newValue || '';
-    applySplashBackground();
+    void applySplashBackground();
   }
   if (changes[STORAGE_KEY_SPLASH_ON]) {
     splashOn = changes[STORAGE_KEY_SPLASH_ON].newValue ?? false;
-    applySplashBackground();
+    void applySplashBackground();
+    updatePublicSplashRefreshButton();
   }
   if (changes[STORAGE_KEY_SPLASH_PUBLIC_ON]) {
     splashPublicOn = changes[STORAGE_KEY_SPLASH_PUBLIC_ON].newValue ?? false;
-    applySplashBackground();
+    void applySplashBackground();
+    updatePublicSplashRefreshButton();
   }
   if (changes[STORAGE_KEY_SPLASH_PROVIDER]) {
-    splashProvider = changes[STORAGE_KEY_SPLASH_PROVIDER].newValue || 'picsum';
-    applySplashBackground();
+    splashProvider = normalizeSplashProvider(changes[STORAGE_KEY_SPLASH_PROVIDER].newValue);
+    void applySplashBackground();
   }
   if (changes[STORAGE_KEY_SPLASH_QUERY]) {
     splashQuery = changes[STORAGE_KEY_SPLASH_QUERY].newValue || '';
-    applySplashBackground();
+    void applySplashBackground();
   }
   if (changes[STORAGE_KEY_SPLASH_REFRESH]) {
     splashRefreshToken = changes[STORAGE_KEY_SPLASH_REFRESH].newValue || Date.now();
-    applySplashBackground();
+    void applySplashBackground();
+  }
+  if (changes[STORAGE_KEY_SPLASH_OPACITY]) {
+    splashOpacity = normalizeSplashOpacity(changes[STORAGE_KEY_SPLASH_OPACITY].newValue ?? 1);
+    void applySplashBackground();
+  }
+  if (changes[STORAGE_KEY_SPLASH_OPACITY_UPDATED_AT]) {
+    splashOpacityUpdatedAt = Number(changes[STORAGE_KEY_SPLASH_OPACITY_UPDATED_AT].newValue) || 0;
+  }
+  if (changes[STORAGE_KEY_SPLASH_UNSPLASH_KEY]) {
+    splashUnsplashKey = changes[STORAGE_KEY_SPLASH_UNSPLASH_KEY].newValue || '';
+    void applySplashBackground();
+  }
+  if (changes[STORAGE_KEY_SPLASH_PUBLIC_URL]) {
+    splashPublicUrl = changes[STORAGE_KEY_SPLASH_PUBLIC_URL].newValue || '';
+    void applySplashBackground();
+  }
+  if (changes[STORAGE_KEY_SPLASH_PUBLIC_LAST_FETCH]) {
+    splashPublicLastFetch = Number(changes[STORAGE_KEY_SPLASH_PUBLIC_LAST_FETCH].newValue) || 0;
+    void applySplashBackground();
   }
 });
 
@@ -215,11 +410,19 @@ function renderDials() {
   }
 
   if (!profile) {
+    grid.style.removeProperty('grid-template-columns');
     const msg = document.createElement('div');
     msg.id = 'empty-state';
     msg.innerHTML = '<p>No profiles yet.</p><small>Click the <strong>＋</strong> button above to create one.</small>';
     grid.appendChild(msg);
     return;
+  }
+
+  const gridColumns = getProfileGridColumns(profile);
+  if (gridColumns) {
+    grid.style.gridTemplateColumns = `repeat(${gridColumns}, minmax(0, 1fr))`;
+  } else {
+    grid.style.removeProperty('grid-template-columns');
   }
 
   const sorted = [...(profile.dials || [])].sort((a, b) => a.position - b.position);
@@ -356,7 +559,7 @@ function buildIcon(dial) {
     if (dial.icon_data) {
       return buildImgIcon(dial.icon_data, dial.title || 'Folder', dial.icon_bg);
     }
-    return buildFolderIcon();
+    return buildFolderIcon(dial);
   }
   if (dial.icon_data) {
     return buildImgIcon(dial.icon_data, dial.title || dial.url, dial.icon_bg);
@@ -407,12 +610,54 @@ function buildAvatar(label) {
   return el;
 }
 
-function buildFolderIcon() {
-  const el = document.createElement('div');
-  el.className = 'dial-card__avatar';
-  el.textContent = '📁';
-  el.style.background = '#0f766e';
-  return el;
+function buildFolderIcon(dial) {
+  const container = document.createElement('div');
+  container.className = 'dial-card__folder-grid';
+
+  const items = Array.isArray(dial?.items) ? dial.items.slice(0, 9) : [];
+  if (items.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'dial-card__avatar';
+    empty.textContent = '📁';
+    empty.style.background = '#0f766e';
+    return empty;
+  }
+
+  const useThreeByThree = items.length > 4;
+  container.classList.add(useThreeByThree ? 'dial-card__folder-grid--3' : 'dial-card__folder-grid--2');
+
+  items.forEach(item => {
+    const cell = document.createElement('div');
+    cell.className = 'dial-card__folder-cell';
+
+    const src = item.icon_data || faviconUrl(item.url);
+    const img = document.createElement('img');
+    img.className = 'dial-card__folder-cell-img';
+    img.src = src;
+    img.alt = item.title || item.url || 'Folder item';
+    if (item.icon_bg) {
+      img.classList.add('dial-card__folder-cell-img--with-bg');
+      img.style.backgroundColor = item.icon_bg;
+    }
+    img.addEventListener('error', () => {
+      const letterEl = document.createElement('div');
+      letterEl.className = 'dial-card__folder-cell-letter';
+      const letter = ((item.title || hostname(item.url)) || '?')[0].toUpperCase();
+      letterEl.textContent = letter;
+      if (item.icon_bg) {
+        letterEl.style.background = item.icon_bg;
+      } else {
+        const code = letter.charCodeAt(0);
+        letterEl.style.background = AVATAR_COLOURS[code % AVATAR_COLOURS.length];
+      }
+      img.replaceWith(letterEl);
+    }, { once: true });
+
+    cell.appendChild(img);
+    container.appendChild(cell);
+  });
+
+  return container;
 }
 
 function closeAllCardMenus() {
@@ -658,8 +903,55 @@ function openFolderModal(folderId) {
 }
 
 function closeFolderModal() {
+  clearFolderDragState();
+  const modal = document.querySelector('#folder-modal-overlay .modal--folder');
+  modal?.classList.remove('folder-modal--drop-out');
   openFolderId = null;
   document.getElementById('folder-modal-overlay').classList.add('hidden');
+}
+
+function clearFolderDragState() {
+  folderDraggedItemId = null;
+  folderDragHoverItemId = null;
+  folderDragHoverMode = null;
+  const root = document.getElementById('folder-items');
+  root?.querySelectorAll('.folder-tile').forEach(c => {
+    c.classList.remove('folder-tile--dragging', 'folder-tile--drop-before', 'folder-tile--drop-after');
+  });
+  const modal = document.querySelector('#folder-modal-overlay .modal--folder');
+  modal?.classList.remove('folder-modal--drop-out');
+}
+
+async function moveFolderItemOut(folderId, itemId) {
+  const profile = getActiveProfile();
+  if (!profile) return;
+  const folder = profile.dials.find(d => d.id === folderId && isFolder(d));
+  if (!folder || !Array.isArray(folder.items)) return;
+
+  const itemIndex = folder.items.findIndex(i => i.id === itemId);
+  if (itemIndex < 0) return;
+
+  const [item] = folder.items.splice(itemIndex, 1);
+  const maxPosition = profile.dials.reduce((max, dial) => {
+    const pos = Number.isInteger(dial.position) ? dial.position : 0;
+    return Math.max(max, pos);
+  }, -1);
+
+  profile.dials.push({
+    id: String(item.id || uuid()),
+    profile_id: profile.id,
+    type: 'dial',
+    title: String(item.title || ''),
+    url: String(item.url || 'https://example.com'),
+    position: maxPosition + 1,
+    icon_data: item.icon_data || null,
+    icon_bg: item.icon_bg || null,
+  });
+
+  folderDragDidMove = true;
+  await saveLocal();
+  renderAll();
+  renderFolderItems();
 }
 
 function renderFolderItems() {
@@ -674,34 +966,103 @@ function renderFolderItems() {
   const root = document.getElementById('folder-items');
   root.innerHTML = '';
 
+  if (!root.dataset.bound) {
+    // Close open menus on background click
+    root.addEventListener('click', e => {
+      if (e.target === root) closeFolderTileMenus();
+    });
+    root.dataset.bound = 'true';
+  }
+
   if (items.length === 0) {
     const empty = document.createElement('div');
-    empty.className = 'folder-item';
-    empty.innerHTML = '<span class="folder-item__title">No links yet. Click "Add link".</span>';
+    empty.className = 'folder-tile-empty';
+    empty.textContent = 'No links yet. Click "Add link".';
     root.appendChild(empty);
     return;
   }
 
+  function applyFolderTileState(card, itemId) {
+    card.classList.remove('folder-tile--drop-before', 'folder-tile--drop-after');
+    if (folderDragHoverItemId !== itemId) return;
+    if (folderDragHoverMode === 'before') card.classList.add('folder-tile--drop-before');
+    if (folderDragHoverMode === 'after')  card.classList.add('folder-tile--drop-after');
+  }
+
   items.forEach(item => {
-    const row = document.createElement('div');
-    row.className = 'folder-item';
+    const card = document.createElement('div');
+    card.className = 'folder-tile';
+    card.dataset.itemId = item.id;
+    card.draggable = true;
 
-    const icon = document.createElement('img');
-    icon.className = 'folder-item__icon';
-    icon.src = item.icon_data || faviconUrl(item.url);
-    icon.alt = item.title || item.url;
-    icon.addEventListener('error', () => {
-      icon.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="28" height="28"%3E%3Crect width="28" height="28" rx="6" fill="%230f766e"/%3E%3Ctext x="14" y="19" text-anchor="middle" font-size="14" fill="white"%3E%3F%3C/text%3E%3C/svg%3E';
+    // Icon
+    const iconSrc = item.icon_data || faviconUrl(item.url);
+    const img = buildImgIcon(iconSrc, item.title || item.url, item.icon_bg || null);
+    img.className = 'folder-tile__icon' + (item.icon_bg ? ' folder-tile__icon--with-bg' : '');
+    img.addEventListener('error', () => {
+      const av = document.createElement('div');
+      av.className = 'folder-tile__avatar';
+      const letter = ((item.title || hostname(item.url)) || '?')[0].toUpperCase();
+      av.textContent = letter;
+      if (item.icon_bg) {
+        av.style.background = item.icon_bg;
+      } else {
+        const code = letter.charCodeAt(0);
+        av.style.background = AVATAR_COLOURS[code % AVATAR_COLOURS.length];
+      }
+      img.replaceWith(av);
     }, { once: true });
+    card.appendChild(img);
 
-    const title = document.createElement('span');
-    title.className = 'folder-item__title';
-    title.textContent = item.title || hostname(item.url);
+    // Title
+    const titleEl = document.createElement('span');
+    titleEl.className = 'folder-tile__title';
+    titleEl.textContent = item.title || hostname(item.url);
+    card.appendChild(titleEl);
 
-    const openBtn = document.createElement('button');
-    openBtn.className = 'folder-item__btn';
-    openBtn.textContent = 'Open';
-    openBtn.addEventListener('click', () => {
+    // Right-click delete menu
+    // Right-click actions menu (edit + delete)
+    const actions = document.createElement('div');
+    actions.className = 'folder-tile__actions';
+    actions.addEventListener('click', e => e.stopPropagation());
+
+    const editBtn = document.createElement('button');
+    editBtn.title = 'Edit';
+    editBtn.textContent = '✏';
+    editBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      closeFolderTileMenus();
+      openEditFolderItemModal(folder, item);
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn-delete';
+    delBtn.title = 'Delete';
+    delBtn.textContent = '🗑';
+    delBtn.addEventListener('click', async e => {
+      e.stopPropagation();
+      folder.items = folder.items.filter(i => i.id !== item.id);
+      await saveLocal();
+      renderFolderItems();
+      renderAll();
+    });
+
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    card.appendChild(actions);
+
+    card.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const already = card.classList.contains('context-open');
+      closeFolderTileMenus();
+      if (!already) card.classList.add('context-open');
+    });
+
+    // Click to navigate
+    card.addEventListener('click', () => {
+      if (folderDragDidMove) { folderDragDidMove = false; return; }
+      closeFolderTileMenus();
       if (openInNewTab) {
         window.open(item.url, '_blank', 'noopener,noreferrer');
       } else {
@@ -709,85 +1070,219 @@ function renderFolderItems() {
       }
     });
 
-    const delBtn = document.createElement('button');
-    delBtn.className = 'folder-item__btn';
-    delBtn.textContent = 'Delete';
-    delBtn.addEventListener('click', async () => {
-      folder.items = items.filter(i => i.id !== item.id);
+    // Drag-and-drop reordering
+    card.addEventListener('dragstart', e => {
+      folderDraggedItemId = item.id;
+      folderDragHoverItemId = null;
+      folderDragHoverMode = null;
+      folderDragDidMove = false;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', item.id);
+      e.dataTransfer.setData('application/x-browser-dials-folder-item', item.id);
+      requestAnimationFrame(() => card.classList.add('folder-tile--dragging'));
+    });
+
+    card.addEventListener('dragend', () => {
+      card.classList.remove('folder-tile--dragging');
+      clearFolderDragState();
+    });
+
+    card.addEventListener('dragover', e => {
+      if (!folderDraggedItemId || folderDraggedItemId === item.id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = card.getBoundingClientRect();
+      const ratio = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0.5;
+      folderDragHoverItemId = item.id;
+      folderDragHoverMode = ratio < 0.5 ? 'before' : 'after';
+      applyFolderTileState(card, item.id);
+      e.dataTransfer.dropEffect = 'move';
+    });
+
+    card.addEventListener('dragleave', e => {
+      const related = e.relatedTarget;
+      if (related instanceof Node && card.contains(related)) return;
+      if (folderDragHoverItemId === item.id) {
+        folderDragHoverItemId = null;
+        folderDragHoverMode = null;
+        applyFolderTileState(card, item.id);
+      }
+    });
+
+    card.addEventListener('drop', async e => {
+      if (!folderDraggedItemId || folderDraggedItemId === item.id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = card.getBoundingClientRect();
+      const ratio = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0.5;
+      const mode = ratio < 0.5 ? 'before' : 'after';
+
+      const currentItems = Array.isArray(folder.items) ? [...folder.items] : [];
+      const fromIdx = currentItems.findIndex(i => i.id === folderDraggedItemId);
+      const toIdx   = currentItems.findIndex(i => i.id === item.id);
+      if (fromIdx < 0 || toIdx < 0) { clearFolderDragState(); return; }
+
+      const [moved] = currentItems.splice(fromIdx, 1);
+      const insertAt = currentItems.findIndex(i => i.id === item.id);
+      currentItems.splice(mode === 'before' ? insertAt : insertAt + 1, 0, moved);
+      folder.items = currentItems;
+      folderDragDidMove = true;
+
       await saveLocal();
       renderFolderItems();
       renderAll();
+      clearFolderDragState();
     });
 
-    row.appendChild(icon);
-    row.appendChild(title);
-    row.appendChild(openBtn);
-    row.appendChild(delBtn);
-    root.appendChild(row);
+    root.appendChild(card);
   });
 }
 
-async function addLinkToOpenFolder() {
-  const profile = getActiveProfile();
-  if (!profile) return;
-  const folder = profile.dials.find(d => d.id === openFolderId && isFolder(d));
-  if (!folder) return;
+function closeFolderTileMenus() {
+  document.querySelectorAll('.folder-tile.context-open').forEach(c => c.classList.remove('context-open'));
+}
 
-  const rawUrl = prompt('Link URL (https://...)');
-  if (!rawUrl) return;
+function openEditFolderItemModal(folder, item) {
+  addingToFolderId    = folder.id;
+  editingFolderItemId = item.id;
+  pendingIconData     = null;
 
-  let cleanUrl;
-  try {
-    const u = new URL(rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('bad protocol');
-    cleanUrl = u.href;
-  } catch {
-    alert('Please provide a valid http/https URL.');
-    return;
+  document.getElementById('modal-title').textContent       = 'Edit Link';
+  document.getElementById('modal-save').textContent        = 'Save';
+  document.getElementById('modal-title-input').value       = item.title || '';
+  document.getElementById('modal-is-folder').checked       = false;
+  document.getElementById('modal-url-input').value         = item.url || '';
+  document.getElementById('modal-icon-input').value        = '';
+  document.getElementById('modal-icon-bg-enabled').checked = !!item.icon_bg;
+  document.getElementById('modal-icon-bg-color').value     = item.icon_bg || '#ffffff';
+  document.getElementById('modal-folder-row').style.display = 'none';
+  updateIconBgColorUi();
+  updateDialModalTypeUi();
+
+  const preview   = document.getElementById('modal-icon-preview');
+  const removeBtn = document.getElementById('modal-icon-remove');
+  if (item.icon_data) {
+    preview.src = item.icon_data;
+    preview.classList.remove('hidden');
+    removeBtn.classList.remove('hidden');
+    removeBtn.dataset.dialId = '';
+  } else {
+    preview.classList.add('hidden');
+    removeBtn.classList.add('hidden');
   }
 
-  const title = (prompt('Title (optional)') || '').trim();
-  if (!Array.isArray(folder.items)) folder.items = [];
-  folder.items.push({
-    id: uuid(),
-    title,
-    url: cleanUrl,
-    icon_data: null,
-  });
-
-  await saveLocal();
-  renderFolderItems();
-  renderAll();
+  closeFolderModal();
+  document.getElementById('modal-overlay').classList.remove('hidden');
+  document.getElementById('modal-title-input').focus();
 }
 
-function applySplashBackground() {
-  const publicUrl = getPublicSplashUrl();
+function addLinkToOpenFolder() {
+  if (!openFolderId) return;
+  openAddModal(openFolderId);
+}
+
+async function applySplashBackground() {
+  const publicUrl = await getPublicSplashUrl();
   const selectedImage = splashPublicOn ? publicUrl : splashData;
 
   if (splashOn && selectedImage) {
     document.body.classList.add('splash-enabled');
     const safeData = selectedImage.replace(/"/g, '\\"');
     document.documentElement.style.setProperty('--splash-image', `url("${safeData}")`);
+    const opacity = String(normalizeSplashOpacity(splashOpacity));
+    document.documentElement.style.setProperty('--splash-opacity', opacity);
+    document.body.style.setProperty('--splash-opacity', opacity);
   } else {
     document.body.classList.remove('splash-enabled');
     document.documentElement.style.removeProperty('--splash-image');
+    document.documentElement.style.removeProperty('--splash-opacity');
+    document.body.style.removeProperty('--splash-opacity');
   }
 }
 
-function getPublicSplashUrl() {
+function updatePublicSplashRefreshButton() {
+  const btn = document.getElementById('btn-splash-refresh-tab');
+  if (!btn) return;
+  const show = splashOn && splashPublicOn;
+  btn.classList.toggle('hidden', !show);
+}
+
+async function refreshPublicSplashFromNewTab() {
+  const now = Date.now();
+  await chrome.storage.local.set({
+    [STORAGE_KEY_SPLASH_REFRESH]: now,
+    [STORAGE_KEY_SPLASH_PUBLIC_URL]: '',
+    [STORAGE_KEY_SPLASH_PUBLIC_LAST_FETCH]: 0,
+  });
+  setSyncStatus('Refreshing background...', false);
+}
+
+async function getPublicSplashUrl() {
+  if (!splashPublicOn) return '';
+
   const refresh = splashRefreshToken || Date.now();
-  const cleanQuery = encodeURIComponent((splashQuery || '').trim());
+  const cleanQuery = (splashQuery || '').trim().replace(/\s+/g, ',');
+  const encodedQuery = encodeURIComponent(cleanQuery);
+  const now = Date.now();
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  const forceRefresh = (splashRefreshToken || 0) > (splashPublicLastFetch || 0);
+  const cacheIsFresh = !!splashPublicUrl && (now - splashPublicLastFetch) < oneDayMs;
 
-  if (splashProvider === 'unsplash') {
-    const queryPart = cleanQuery ? `?${cleanQuery}&` : '?';
-    return `https://source.unsplash.com/1920x1080/${queryPart}sig=${refresh}`;
+  if (!forceRefresh && cacheIsFresh) {
+    return splashPublicUrl;
   }
 
-  // Default: picsum
-  if (cleanQuery) {
-    return `https://picsum.photos/seed/${cleanQuery}-${refresh}/1920/1080`;
+  if (splashProvider !== 'unsplash') {
+    // Picsum: generate once and cache for a day.
+    let url;
+    if (encodedQuery) {
+      url = `https://picsum.photos/seed/${encodedQuery}-${now}/1920/1080`;
+    } else {
+      url = `https://picsum.photos/1920/1080?random=${now}`;
+    }
+    splashPublicUrl = url;
+    splashPublicLastFetch = now;
+    await chrome.storage.local.set({
+      [STORAGE_KEY_SPLASH_PUBLIC_URL]: url,
+      [STORAGE_KEY_SPLASH_PUBLIC_LAST_FETCH]: now,
+    });
+    return url;
   }
-  return `https://picsum.photos/1920/1080?random=${refresh}`;
+
+  if (!splashUnsplashKey) {
+    setSyncStatus('Unsplash access key required', true);
+    return splashPublicUrl || '';
+  }
+
+  if (!splashFetchPromise) {
+    splashFetchPromise = (async () => {
+      const endpoint = `https://api.unsplash.com/photos/random?query=${encodedQuery || 'random'}&client_id=${encodeURIComponent(splashUnsplashKey)}`;
+      const resp = await fetch(endpoint, { method: 'GET' });
+      if (!resp.ok) {
+        throw new Error(`Unsplash HTTP ${resp.status}`);
+      }
+      const body = await resp.json();
+      const url = body?.urls?.regular || body?.urls?.full || body?.urls?.raw || '';
+      if (!url) throw new Error('Unsplash response missing image URL');
+
+      splashPublicUrl = url;
+      splashPublicLastFetch = now;
+      await chrome.storage.local.set({
+        [STORAGE_KEY_SPLASH_PUBLIC_URL]: url,
+        [STORAGE_KEY_SPLASH_PUBLIC_LAST_FETCH]: now,
+      });
+      return url;
+    })()
+      .catch(err => {
+        setSyncStatus(`Unsplash failed: ${err.message}`, true);
+        return splashPublicUrl || '';
+      })
+      .finally(() => {
+        splashFetchPromise = null;
+      });
+  }
+
+  return splashFetchPromise;
 }
 
 // ─── Profile actions ──────────────────────────────────────────────────────────
@@ -811,6 +1306,7 @@ async function createProfile(name) {
     id:       uuid(),
     name:     trimmed,
     position: state.profiles.length,
+    properties: {},
     dials:    [],
   };
 
@@ -839,21 +1335,25 @@ async function confirmDeleteProfile(profile) {
 }
 
 // ─── Dial actions ─────────────────────────────────────────────────────────────
-function openAddModal() {
-  editingDialId   = null;
-  pendingIconData = null;
-  document.getElementById('modal-title').textContent       = 'Add Dial';
+function openAddModal(folderId = null) {
+  editingDialId    = null;
+  addingToFolderId = folderId || null;
+  pendingIconData  = null;
+  document.getElementById('modal-title').textContent       = folderId ? 'Add Link' : 'Add Dial';
   document.getElementById('modal-save').textContent        = 'Add';
   document.getElementById('modal-title-input').value       = '';
   document.getElementById('modal-is-folder').checked       = false;
   document.getElementById('modal-url-input').value         = '';
   document.getElementById('modal-icon-input').value        = '';
   document.getElementById('modal-icon-bg-enabled').checked = false;
-  document.getElementById('modal-icon-bg-color').value = '#ffffff';
+  document.getElementById('modal-icon-bg-color').value     = '#ffffff';
   document.getElementById('modal-icon-preview').classList.add('hidden');
   document.getElementById('modal-icon-remove').classList.add('hidden');
+  // Hide the "Create as folder" row when adding an item inside a folder
+  document.getElementById('modal-folder-row').style.display = folderId ? 'none' : '';
   updateIconBgColorUi();
   updateDialModalTypeUi();
+  if (folderId) closeFolderModal();
   document.getElementById('modal-overlay').classList.remove('hidden');
   document.getElementById('modal-url-input').focus();
 }
@@ -892,6 +1392,11 @@ function closeModal() {
   document.getElementById('modal-overlay').classList.add('hidden');
   editingDialId   = null;
   pendingIconData = null;
+  editingFolderItemId = null;
+  document.getElementById('modal-folder-row').style.display = '';
+  const wasAddingToFolder = addingToFolderId;
+  addingToFolderId = null;
+  if (wasAddingToFolder) openFolderModal(wasAddingToFolder);
 }
 
 function updateDialModalTypeUi() {
@@ -900,6 +1405,61 @@ function updateDialModalTypeUi() {
 }
 
 async function saveDial() {
+  // ── Adding a link inside a folder ─────────────────────────────────────────
+  if (addingToFolderId) {
+    const urlEl  = document.getElementById('modal-url-input');
+    const rawUrl = urlEl.value.trim();
+    if (!rawUrl) { urlEl.focus(); return; }
+    let cleanUrl;
+    try {
+      const u = new URL(rawUrl.startsWith('http') ? rawUrl : 'https://' + rawUrl);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('bad protocol');
+      cleanUrl = u.href;
+    } catch {
+      urlEl.setCustomValidity('Enter a valid http/https URL');
+      urlEl.reportValidity();
+      return;
+    }
+    urlEl.setCustomValidity('');
+
+    const title        = document.getElementById('modal-title-input').value.trim();
+    const iconBgColor  = getModalIconBackground();
+    const iconDataForSave = pendingIconData;
+    const profile      = getActiveProfile();
+    if (!profile) return;
+    const folder = profile.dials.find(d => d.id === addingToFolderId && isFolder(d));
+    if (!folder) { closeModal(); return; }
+    if (!Array.isArray(folder.items)) folder.items = [];
+
+    if (editingFolderItemId) {
+      // Edit existing folder item
+      const item = folder.items.find(i => i.id === editingFolderItemId);
+      if (item) {
+        item.title   = title;
+        item.url     = cleanUrl;
+        item.icon_bg = iconBgColor;
+        // null  → no change; ''    → explicitly removed; string → new image
+        if (iconDataForSave === '') item.icon_data = null;
+        else if (iconDataForSave !== null) item.icon_data = iconDataForSave;
+      }
+    } else {
+      // Add new folder item
+      folder.items.push({
+        id:        uuid(),
+        title,
+        url:       cleanUrl,
+        icon_data: iconDataForSave,
+        icon_bg:   iconBgColor,
+      });
+    }
+
+    closeModal(); // reopens the folder modal
+    await saveLocal();
+    renderAll();
+    return;
+  }
+
+  // ── Normal dial / folder dial ──────────────────────────────────────────────
   const titleEl = document.getElementById('modal-title-input');
   const urlEl   = document.getElementById('modal-url-input');
   const iconBgColor = getModalIconBackground();
@@ -1018,39 +1578,70 @@ async function handleRemoveIcon(dialId) {
 }
 
 async function saveLocal() {
+  debug('saveLocal called', { syncMode, dials: state.profiles.reduce((sum, p) => sum + p.dials.length, 0) });
   if (syncMode === 'server') {
     try {
+      debug('Pushing state to server...');
       await pushStateToServer();
+      debug('State pushed to server successfully');
     } catch (err) {
+      debug('Server push failed:', err.message);
       setSyncStatus(`Sync failed: ${err.message}`, true);
     }
   }
-  await chrome.storage.local.set({
-    [STORAGE_KEY_STATE]:  state,
-    [STORAGE_KEY_ACTIVE]: activeProfileId,
-  });
+  try {
+    await chrome.storage.local.set({
+      [STORAGE_KEY_STATE]:  state,
+      [STORAGE_KEY_ACTIVE]: activeProfileId,
+    });
+    debug('State saved to local storage');
+  } catch (err) {
+    debug('Local save failed:', err.message);
+    setSyncStatus(`Failed to save: ${err.message}`, true);
+  }
 }
 
-async function loadInitialState() {
+async function loadInitialState(forcePull = false) {
+  debug('loadInitialState called', { forcePull, syncMode, syncLastPullAt });
   if (syncMode === 'server') {
     if (!syncServerUrl || !syncApiKey || !syncUsername || !syncPassword) {
+      debug('Server mode incomplete - missing credentials');
       setSyncStatus('Server mode requires URL, API key, username, and password.', true);
       return;
     }
+    const now = Date.now();
+    const shouldPull = forcePull || !syncLastPullAt || (now - syncLastPullAt) >= SYNC_PULL_INTERVAL_MS;
+    debug('Server sync check', { forcePull, shouldPull, timeSinceLastPull: now - syncLastPullAt, interval: SYNC_PULL_INTERVAL_MS });
+    if (!shouldPull) {
+      if (!state.profiles.find(p => p.id === activeProfileId)) {
+        activeProfileId = state.profiles[0]?.id ?? null;
+      }
+      return;
+    }
     try {
-      const serverProfiles = await fetchServerState();
+      debug('Fetching state from server...');
+      const syncBundle = await fetchServerState();
+      debug('Server state received', { profileCount: syncBundle.profiles?.length, hasSettings: !!syncBundle.settings });
+      const serverProfiles = Array.isArray(syncBundle?.profiles) ? syncBundle.profiles : [];
       state = normalizeServerProfiles(serverProfiles);
+      await applyServerSettings(syncBundle?.settings);
+      syncLastPullAt = now;
+      debug('State updated from server', { profiles: state.profiles.length });
       if (!state.profiles.find(p => p.id === activeProfileId)) {
         activeProfileId = state.profiles[0]?.id ?? null;
       }
       await chrome.storage.local.set({
         [STORAGE_KEY_STATE]: state,
         [STORAGE_KEY_ACTIVE]: activeProfileId,
+        [STORAGE_KEY_SYNC_LAST_PULL_AT]: syncLastPullAt,
       });
       return;
     } catch (err) {
+      debug('Server sync failed, using cache:', err.message);
       setSyncStatus(`Sync unavailable, using cache: ${err.message}`, true);
     }
+  } else {
+    debug('Local mode - skipping server sync');
   }
 
   if (!state.profiles.find(p => p.id === activeProfileId)) {
@@ -1068,17 +1659,94 @@ function normalizeServerProfiles(rawProfiles) {
         id: profileId,
         name: String(profile.name || 'Profile'),
         position: Number.isInteger(profile.position) ? profile.position : pIdx,
+        properties: (() => {
+          const fromServer = normalizeProfileProperties(profile.properties);
+          if (typeof profile.properties_json === 'string' && profile.properties_json.trim()) {
+            try {
+              const parsed = JSON.parse(profile.properties_json);
+              if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                Object.assign(fromServer, parsed);
+              }
+            } catch {
+              // Ignore malformed server properties_json.
+            }
+          }
+          const localProfile = state.profiles.find(p => p.id === profileId);
+          const localProps = getProfileProperties(localProfile);
+          const merged = { ...localProps, ...fromServer };
+          const legacyGrid = normalizeGridColumns(profile.grid_columns);
+          if (legacyGrid !== null && merged.grid_columns === undefined) {
+            merged.grid_columns = legacyGrid;
+          }
+          return merged;
+        })(),
         dials: dials.map((dial, dIdx) => {
           const settings = parseDialSettings(dial.settings_json, dial.settings);
           const iconBg = typeof settings.icon_bg === 'string' ? settings.icon_bg : null;
+          const dialId = String(dial.id || uuid());
+          // Icons are stored locally only (not synced to server), so preserve
+          // any icon_data that was saved in the local state for this dial.
+          let localIconData = null;
+          for (const localProfile of state.profiles) {
+            const localDial = localProfile.dials?.find(d => d.id === dialId);
+            if (localDial?.icon_data) {
+              localIconData = localDial.icon_data;
+              break;
+            }
+          }
+
+          // Reconstruct folders that were encoded with a sentinel URL on push.
+          if (settings._type === 'folder') {
+            const rawItems = Array.isArray(settings._items) ? settings._items : [];
+            const folderIconData = (typeof settings.icon_data === 'string' && settings.icon_data)
+              ? settings.icon_data
+              : localIconData;
+            const localFolder = (() => {
+              for (const lp of state.profiles) {
+                const f = lp.dials?.find(d => d.id === dialId && isFolder(d));
+                if (f) return f;
+              }
+              return null;
+            })();
+            return {
+              id: dialId,
+              profile_id: profileId,
+              type: 'folder',
+              title: String(dial.title || ''),
+              url: '',
+              position: Number.isInteger(dial.position) ? dial.position : dIdx,
+              icon_data: folderIconData,
+              icon_bg: typeof settings.icon_bg === 'string' ? settings.icon_bg : null,
+              items: rawItems.map(item => {
+                const itemId = String(item.id || uuid());
+                // Preserve locally stored icon_data for folder items
+                const localItem = localFolder?.items?.find(i => i.id === itemId);
+                const incomingItemIconData = (typeof item.icon_data === 'string' && item.icon_data)
+                  ? item.icon_data
+                  : null;
+                return {
+                  id: itemId,
+                  title: String(item.title || ''),
+                  url: String(item.url || 'https://example.com'),
+                  icon_data: incomingItemIconData || localItem?.icon_data || null,
+                  icon_bg: item.icon_bg || null,
+                };
+              }),
+            };
+          }
+
+          const dialIconData = (typeof settings.icon_data === 'string' && settings.icon_data)
+            ? settings.icon_data
+            : localIconData;
+
           return {
-            id: String(dial.id || uuid()),
+            id: dialId,
             profile_id: profileId,
             type: 'dial',
             title: String(dial.title || ''),
             url: String(dial.url || 'https://example.com'),
             position: Number.isInteger(dial.position) ? dial.position : dIdx,
-            icon_data: null,
+            icon_data: dialIconData,
             icon_bg: iconBg,
             settings,
           };
@@ -1094,15 +1762,41 @@ function toServerProfiles(localState) {
     id: String(profile.id),
     name: String(profile.name || 'Profile'),
     position: Number.isInteger(profile.position) ? profile.position : 0,
+    properties: getProfileProperties(profile),
+    properties_json: JSON.stringify(getProfileProperties(profile)),
     dials: (Array.isArray(profile.dials) ? profile.dials : [])
-      .filter(dial => !isFolder(dial) && typeof dial.url === 'string' && dial.url)
-      .map((dial, idx) => ({
-        id: String(dial.id),
-        title: String(dial.title || ''),
-        url: String(dial.url),
-        position: Number.isInteger(dial.position) ? dial.position : idx,
-        settings_json: JSON.stringify(buildDialSettingsPayload(dial)),
-      })),
+      .filter(dial => isFolder(dial) || (typeof dial.url === 'string' && dial.url))
+      .map((dial, idx) => {
+        if (isFolder(dial)) {
+          // Encode folders using a sentinel URL so the server stores them.
+          // The full folder data lives in settings_json and is restored on pull.
+          const items = Array.isArray(dial.items) ? dial.items : [];
+          return {
+            id: String(dial.id),
+            title: String(dial.title || ''),
+            url: 'https://folder.placeholder/',
+            position: Number.isInteger(dial.position) ? dial.position : idx,
+            settings_json: JSON.stringify({
+              ...buildDialSettingsPayload(dial),
+              _type: 'folder',
+              _items: items.map(item => ({
+                id: String(item.id),
+                title: String(item.title || ''),
+                url: String(item.url || ''),
+                icon_data: (typeof item.icon_data === 'string' && item.icon_data) ? item.icon_data : null,
+                icon_bg: item.icon_bg || null,
+              })),
+            }),
+          };
+        }
+        return {
+          id: String(dial.id),
+          title: String(dial.title || ''),
+          url: String(dial.url),
+          position: Number.isInteger(dial.position) ? dial.position : idx,
+          settings_json: JSON.stringify(buildDialSettingsPayload(dial)),
+        };
+      }),
   }));
 }
 
@@ -1128,6 +1822,9 @@ function buildDialSettingsPayload(dial) {
   const payload = (dial.settings && typeof dial.settings === 'object' && !Array.isArray(dial.settings))
     ? { ...dial.settings }
     : {};
+  if (typeof dial.icon_data === 'string' && dial.icon_data) {
+    payload.icon_data = dial.icon_data;
+  }
   if (typeof dial.icon_bg === 'string' && dial.icon_bg) {
     payload.icon_bg = dial.icon_bg;
   }
@@ -1135,6 +1832,7 @@ function buildDialSettingsPayload(dial) {
 }
 
 async function fetchServerState() {
+  debug('fetchServerState - connecting to', syncServerUrl);
   const resp = await fetch(`${syncServerUrl}/api/sync`, {
     method: 'GET',
     headers: {
@@ -1144,13 +1842,29 @@ async function fetchServerState() {
     },
   });
   if (!resp.ok) {
+    debug('Server returned HTTP', resp.status);
     throw new Error(`HTTP ${resp.status}`);
   }
-  return resp.json();
+  const body = await resp.json();
+  if (Array.isArray(body)) {
+    // Backward-compatible shape from older servers
+    debug('Server returned legacy array format');
+    return { profiles: body, settings: null };
+  }
+  debug('Server returned new format');
+  return {
+    profiles: Array.isArray(body?.profiles) ? body.profiles : [],
+    settings: (body?.settings && typeof body.settings === 'object' && !Array.isArray(body.settings))
+      ? body.settings
+      : null,
+  };
 }
 
 async function pushStateToServer() {
-  const payload = toServerProfiles(state);
+  const payload = {
+    profiles: toServerProfiles(state),
+    settings: buildSyncSettingsPayload(),
+  };
   const resp = await fetch(`${syncServerUrl}/api/sync`, {
     method: 'POST',
     headers: {
@@ -1217,6 +1931,10 @@ document.getElementById('btn-settings').addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
 
+document.getElementById('btn-splash-refresh-tab').addEventListener('click', () => {
+  refreshPublicSplashFromNewTab().catch(err => setSyncStatus(`Background refresh failed: ${err.message}`, true));
+});
+
 document.getElementById('search-form').addEventListener('submit', e => {
   e.preventDefault();
   const input = document.getElementById('search-input');
@@ -1259,7 +1977,16 @@ document.getElementById('modal-icon-input').addEventListener('change', e => {
 
 document.getElementById('modal-icon-remove').addEventListener('click', e => {
   const dialId = e.target.dataset.dialId;
-  if (dialId) handleRemoveIcon(dialId);
+  if (dialId) {
+    handleRemoveIcon(dialId);
+  } else if (editingFolderItemId) {
+    // Clear icon for a folder item — mark as explicitly removed
+    pendingIconData = '';
+    const preview = document.getElementById('modal-icon-preview');
+    preview.src = '';
+    preview.classList.add('hidden');
+    document.getElementById('modal-icon-remove').classList.add('hidden');
+  }
 });
 
 // Profile modal
@@ -1282,10 +2009,62 @@ document.getElementById('folder-close').addEventListener('click', closeFolderMod
 document.getElementById('folder-add-link').addEventListener('click', () => {
   addLinkToOpenFolder();
 });
-document.getElementById('folder-modal-overlay').addEventListener('click', e => {
+const folderModalOverlay = document.getElementById('folder-modal-overlay');
+folderModalOverlay.addEventListener('click', e => {
   if (e.target === e.currentTarget) {
     closeFolderModal();
   }
+});
+
+const folderModalShell = document.querySelector('#folder-modal-overlay .modal--folder');
+folderModalOverlay.addEventListener('dragover', e => {
+  if (!folderDraggedItemId || !openFolderId) return;
+  const inGrid = e.target instanceof Element && !!e.target.closest('#folder-items');
+  if (inGrid) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  folderModalShell?.classList.add('folder-modal--drop-out');
+});
+folderModalOverlay.addEventListener('dragleave', e => {
+  if (!folderDraggedItemId) return;
+  const related = e.relatedTarget;
+  if (related instanceof Node && folderModalOverlay.contains(related)) return;
+  folderModalShell?.classList.remove('folder-modal--drop-out');
+});
+folderModalOverlay.addEventListener('drop', e => {
+  if (!folderDraggedItemId || !openFolderId) return;
+  const inGrid = e.target instanceof Element && !!e.target.closest('#folder-items');
+  if (inGrid) return;
+  e.preventDefault();
+  folderModalShell?.classList.remove('folder-modal--drop-out');
+  void moveFolderItemOut(openFolderId, folderDraggedItemId).finally(() => {
+    clearFolderDragState();
+  });
+});
+
+folderModalShell?.addEventListener('dragover', e => {
+  if (!folderDraggedItemId || !openFolderId) return;
+  const inGrid = e.target instanceof Element && !!e.target.closest('#folder-items');
+  if (inGrid) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  folderModalShell.classList.add('folder-modal--drop-out');
+});
+folderModalShell?.addEventListener('dragleave', e => {
+  if (!folderDraggedItemId) return;
+  const related = e.relatedTarget;
+  if (related instanceof Node && folderModalShell.contains(related)) return;
+  folderModalShell.classList.remove('folder-modal--drop-out');
+});
+folderModalShell?.addEventListener('drop', e => {
+  if (!folderDraggedItemId || !openFolderId) return;
+  const inGrid = e.target instanceof Element && !!e.target.closest('#folder-items');
+  if (inGrid) return;
+  e.preventDefault();
+  folderModalShell.classList.remove('folder-modal--drop-out');
+  void moveFolderItemOut(openFolderId, folderDraggedItemId).finally(() => {
+    clearFolderDragState();
+  });
 });
 
 // Keyboard shortcuts

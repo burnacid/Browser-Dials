@@ -214,6 +214,24 @@ input[type="password"]:focus {
   gap: 6px;
 }
 
+.item-grid-setting {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.item-grid-select {
+  min-width: 74px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-solid);
+  color: var(--text);
+  font-size: 12px;
+}
+
 /* ─── Buttons ────────────────────────────────────────────────────────────────── */
 .btn-primary {
   padding: 9px 18px;
@@ -275,6 +293,20 @@ input[type="password"]:focus {
   border-radius: 6px;
 }
 
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.btn-syncing {
+  animation: spin 1s linear infinite;
+}
+
 /* ─── Status labels ──────────────────────────────────────────────────────────── */
 #backup-status {
   font-size: 13px;
@@ -306,3 +338,158 @@ input[type="password"]:focus {
   box-shadow: var(--shadow);
 }
 .splash-preview.hidden { display: none; }
+
+/* ─── Modal ──────────────────────────────────────────────────────────────────── */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 200ms ease, visibility 200ms ease;
+}
+
+.modal--hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: -1;
+}
+
+.modal-content {
+  background: var(--surface-solid);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  padding: 28px;
+  max-width: 500px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-content h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+.modal-content > p {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+/* ─── Conflict Options ─────────────────────────────────────────────────────── */
+.conflict-options {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.conflict-option {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.radio-label:hover {
+  background: var(--border);
+}
+
+.radio-label input[type="radio"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
+}
+
+.radio-label input[type="radio"]:checked ~ .radio-title {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.radio-title {
+  display: block;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.radio-desc {
+  display: block;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.merge-options {
+  padding-left: 30px;
+  border-left: 2px solid var(--border);
+  margin-top: 12px;
+}
+
+.merge-options .field label {
+  font-size: 13px;
+}
+
+.merge-options select {
+  font-size: 13px;
+}
+
+/* ─── Modal Actions ──────────────────────────────────────────────────────── */
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.modal-actions button {
+  flex: 1;
+}
+
+@media (max-width: 480px) {
+  .modal-content {
+    width: 95%;
+    padding: 20px;
+  }
+  
+  .modal-actions {
+    flex-direction: column-reverse;
+  }
+  
+  .modal-actions button {
+    width: 100%;
+  }
+}

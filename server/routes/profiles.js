@@ -11,7 +11,7 @@ router.get('/', async (req, res) => {
   try {
     const userId = req.auth.userId;
     const [rows] = await db.execute(
-      'SELECT id, user_id, name, position, created_at FROM profiles WHERE user_id = ? ORDER BY position ASC, created_at ASC',
+      'SELECT id, user_id, name, position, properties_json, created_at FROM profiles WHERE user_id = ? ORDER BY position ASC, created_at ASC',
       [userId]
     );
     res.json(rows);
@@ -23,7 +23,7 @@ router.get('/', async (req, res) => {
 
 // ─── Create profile ───────────────────────────────────────────────────────────
 router.post('/', async (req, res) => {
-  const { name, position } = req.body ?? {};
+  const { name, position, properties, properties_json } = req.body ?? {};
   const userId = req.auth.userId;
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     return res.status(400).json({ error: 'name is required' });
@@ -35,10 +35,25 @@ router.post('/', async (req, res) => {
   const id  = uuidv4();
   const pos = Number.isInteger(position) ? position : 0;
 
+  let profileProperties = {};
+  if (properties && typeof properties === 'object' && !Array.isArray(properties)) {
+    profileProperties = { ...properties };
+  }
+  if (typeof properties_json === 'string' && properties_json.trim()) {
+    try {
+      const parsed = JSON.parse(properties_json);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        profileProperties = { ...profileProperties, ...parsed };
+      }
+    } catch {
+      return res.status(400).json({ error: 'properties_json must be valid JSON object' });
+    }
+  }
+
   try {
     await db.execute(
-      'INSERT INTO profiles (id, user_id, name, position) VALUES (?, ?, ?, ?)',
-      [id, userId, name.trim(), pos]
+      'INSERT INTO profiles (id, user_id, name, position, properties_json) VALUES (?, ?, ?, ?, ?)',
+      [id, userId, name.trim(), pos, JSON.stringify(profileProperties)]
     );
     const [rows] = await db.execute('SELECT * FROM profiles WHERE id = ? AND user_id = ?', [id, userId]);
     res.status(201).json(rows[0]);
@@ -52,7 +67,7 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const userId = req.auth.userId;
-  const { name, position } = req.body ?? {};
+  const { name, position, properties, properties_json } = req.body ?? {};
 
   const fields = [];
   const values = [];
@@ -74,6 +89,32 @@ router.put('/:id', async (req, res) => {
     }
     fields.push('position = ?');
     values.push(position);
+  }
+
+  if (properties !== undefined || properties_json !== undefined) {
+    let profileProperties = {};
+    if (properties !== undefined) {
+      if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+        return res.status(400).json({ error: 'properties must be an object' });
+      }
+      profileProperties = { ...properties };
+    }
+    if (properties_json !== undefined) {
+      if (typeof properties_json !== 'string') {
+        return res.status(400).json({ error: 'properties_json must be a string' });
+      }
+      try {
+        const parsed = JSON.parse(properties_json);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          return res.status(400).json({ error: 'properties_json must encode an object' });
+        }
+        profileProperties = { ...profileProperties, ...parsed };
+      } catch {
+        return res.status(400).json({ error: 'properties_json must be valid JSON object' });
+      }
+    }
+    fields.push('properties_json = ?');
+    values.push(JSON.stringify(profileProperties));
   }
 
   if (fields.length === 0) {

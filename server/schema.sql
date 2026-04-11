@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `username`      VARCHAR(100) NOT NULL,
   `password_hash` VARCHAR(255) NOT NULL,
   `is_active`     TINYINT(1)   NOT NULL DEFAULT 1,
+  `settings_json` LONGTEXT     NULL,
   `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_users_username` (`username`)
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS `profiles` (
   `user_id`    VARCHAR(36)  NOT NULL,
   `name`       VARCHAR(100) NOT NULL,
   `position`   INT          NOT NULL DEFAULT 0,
+  `properties_json` LONGTEXT NULL,
   `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_profiles_user` (`user_id`),

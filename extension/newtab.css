@@ -14,7 +14,7 @@
   --dial-size:   156px;
   --header-h:    52px;
   --transition:  160ms ease;
-  --splash-opacity: 0;
+  --splash-opacity: 1;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -63,10 +63,6 @@ body::after {
     linear-gradient(180deg, rgba(255,255,255,.24), rgba(255,255,255,.08));
   z-index: -1;
   pointer-events: none;
-}
-
-body.splash-enabled {
-  --splash-opacity: .42;
 }
 
 body.splash-enabled::after {
@@ -173,6 +169,40 @@ body.splash-enabled::after {
   text-align: right;
 }
 #sync-status.error { color: var(--danger); }
+
+.splash-refresh-tab {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 20;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform var(--transition), background var(--transition), border-color var(--transition);
+}
+
+.splash-refresh-tab:hover {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.splash-refresh-tab:active {
+  transform: translateY(0);
+}
+
+.splash-refresh-tab.hidden {
+  display: none;
+}
 
 #search-shell {
   max-width: 840px;
@@ -331,6 +361,61 @@ body.splash-enabled::after {
   font-weight: 700;
   color: #fff;
   flex-shrink: 0;
+}
+
+.dial-card__folder-grid {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  display: grid;
+  gap: 2px;
+  padding: 2px;
+  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.dial-card__folder-grid--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dial-card__folder-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dial-card__folder-cell {
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dial-card__folder-cell-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.dial-card__folder-cell-img--with-bg {
+  padding: 2px;
+}
+
+.dial-card__folder-cell-letter {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .dial-card__title {
@@ -561,51 +646,139 @@ body.splash-enabled::after {
   justify-content: space-between;
 }
 
-.folder-items {
+/* ─── Folder modal ───────────────────────────────────────────────────────────── */
+.modal--folder {
+  max-width: 980px;
+}
+
+.folder-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--dial-size), 1fr));
+  gap: 18px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.folder-tile {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: 320px;
-  overflow: auto;
-  padding-right: 4px;
-}
-
-.folder-item {
-  display: flex;
   align-items: center;
   gap: 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px;
+  padding: 18px 12px 14px;
   background: color-mix(in srgb, var(--surface) 90%, transparent);
-}
-
-.folder-item__icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  object-fit: contain;
-}
-
-.folder-item__title {
-  flex: 1;
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.folder-item__btn {
-  border: none;
-  border-radius: 8px;
-  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
   cursor: pointer;
-  background: var(--surface-2);
+  text-decoration: none;
   color: var(--text);
+  transition: transform var(--transition), box-shadow var(--transition);
+  overflow: hidden;
+  user-select: none;
+}
+.folder-tile:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 28px rgba(0,0,0,.18);
 }
 
-.folder-item__btn:hover {
-  background: var(--border);
+.folder-tile--dragging {
+  opacity: .45;
+  transform: scale(.97);
+}
+
+.folder-tile--drop-before,
+.folder-tile--drop-after {
+  border-color: var(--accent);
+}
+
+.folder-tile--drop-before::before,
+.folder-tile--drop-after::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent), var(--accent-dark));
+}
+.folder-tile--drop-before::before { left: 4px; }
+.folder-tile--drop-after::after  { right: 4px; }
+
+.folder-tile__icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  object-fit: contain;
+  flex-shrink: 0;
+  display: block;
+}
+
+.folder-tile__icon--with-bg {
+  padding: 6px;
+  border-radius: 12px;
+}
+
+.folder-tile__avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.folder-tile__title {
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  word-break: break-word;
+  line-height: 1.3;
+  max-width: 100%;
+}
+
+.modal--folder.folder-modal--drop-out {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 52%, transparent), 0 8px 32px rgba(0,0,0,.2);
+}
+
+/* right-click delete menu on folder tiles */
+.folder-tile__actions {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.2);
+  z-index: 2;
+}
+.folder-tile.context-open .folder-tile__actions { display: flex; }
+.folder-tile__actions button {
+  background: var(--surface-2);
+  border: none;
+  border-radius: 6px;
+  padding: 5px 7px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+  transition: background var(--transition);
+}
+.folder-tile__actions button:hover { background: var(--border); }
+.folder-tile__actions .btn-delete:hover { color: var(--danger); }
+
+.folder-tile-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 24px 0;
 }
 
 /* ─── Buttons ────────────────────────────────────────────────────────────────── */

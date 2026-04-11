@@ -86,6 +86,11 @@
             <button id="btn-register-account" class="btn-secondary">Register Account</button>
           </div>
         </div>
+
+        <div class="field-row" id="sync-force-row">
+          <button id="btn-sync-force" class="btn-secondary" type="button">Force Sync Now</button>
+          <span id="sync-last-success" class="field-hint" aria-live="polite">Last sync: Never</span>
+        </div>
       </div>
     </section>
 
@@ -133,7 +138,7 @@
         <label for="splash-provider">Public provider</label>
         <select id="splash-provider">
           <option value="picsum">Picsum (random photos)</option>
-          <option value="unsplash">Unsplash Source (query-based)</option>
+          <option value="unsplash">Unsplash Random API (requires key)</option>
         </select>
       </div>
 
@@ -142,8 +147,19 @@
         <input id="splash-query" type="text" placeholder="nature, mountains, minimal" maxlength="120" />
       </div>
 
+      <div class="field" id="splash-unsplash-key-field">
+        <label for="splash-unsplash-key">Unsplash Access Key</label>
+        <input id="splash-unsplash-key" type="password" placeholder="Paste Unsplash API access key" maxlength="128" autocomplete="off" />
+      </div>
+
       <div class="field-row">
         <button id="btn-splash-refresh" class="btn-secondary">Refresh public background</button>
+        <button id="btn-splash-save" class="btn-primary">Save & Apply</button>
+      </div>
+
+      <div class="field">
+        <label for="splash-opacity">Splash opacity: <span id="splash-opacity-value">1.00</span></label>
+        <input id="splash-opacity" type="range" min="0" max="1" step="0.05" value="1" />
       </div>
 
       <div class="field-row">
@@ -188,6 +204,56 @@
         <span class="field-hint" style="flex:1">Removes cached dials from this browser only.</span>
       </div>
     </section>
+  </div>
+
+  <!-- ── Sync Conflict Modal ───────────────────────────────────────────────── -->
+  <div id="sync-conflict-modal" class="modal modal--hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <h2>Sync Conflict Detected</h2>
+      <p id="conflict-description"></p>
+      
+      <div class="conflict-options">
+        <div class="conflict-option">
+          <label class="radio-label">
+            <input type="radio" name="sync-strategy" value="push" />
+            <span class="radio-title">Push local to server</span>
+            <span class="radio-desc">Overwrite server data with your local data</span>
+          </label>
+        </div>
+        
+        <div class="conflict-option">
+          <label class="radio-label">
+            <input type="radio" name="sync-strategy" value="pull" />
+            <span class="radio-title">Pull from server</span>
+            <span class="radio-desc">Overwrite your local data with server data</span>
+          </label>
+        </div>
+        
+        <div class="conflict-option">
+          <label class="radio-label">
+            <input type="radio" name="sync-strategy" value="merge" checked />
+            <span class="radio-title">Combine both (safe merge)</span>
+            <span class="radio-desc">Keep all dials and profiles from both sides (never deletes)</span>
+          </label>
+          
+          <div class="merge-options">
+            <div class="field" style="margin-top: 12px;">
+              <label for="merge-precedence">When both sides changed the same item:</label>
+              <select id="merge-precedence">
+                <option value="local">Use local version</option>
+                <option value="server">Use server version</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="modal-actions">
+        <button id="btn-conflict-cancel" class="btn-secondary">Cancel</button>
+        <button id="btn-conflict-proceed" class="btn-primary">Proceed</button>
+      </div>
+    </div>
   </div>
 
   <script src="options.js"></script>

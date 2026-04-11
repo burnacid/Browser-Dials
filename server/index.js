@@ -35,7 +35,7 @@ app.use(cors({
 }));
 
 // ─── Body parsing ─────────────────────────────────────────────────────────────
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '15mb' }));
 
 // ─── Static uploads ───────────────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -56,8 +56,24 @@ app.use('/api/dials', dialsRouter);
 app.get('/api/sync', async (req, res) => {
   try {
     const userId = req.auth.userId;
+    const [userRows] = await db.execute(
+      'SELECT settings_json FROM users WHERE id = ? LIMIT 1',
+      [userId]
+    );
+    let userSettings = {};
+    if (userRows.length > 0 && typeof userRows[0].settings_json === 'string' && userRows[0].settings_json.trim()) {
+      try {
+        const parsed = JSON.parse(userRows[0].settings_json);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          userSettings = parsed;
+        }
+      } catch {
+        // Ignore malformed JSON and keep defaults.
+      }
+    }
+
     const [profiles] = await db.execute(
-      'SELECT id, user_id, name, position, created_at FROM profiles WHERE user_id = ? ORDER BY position ASC, created_at ASC',
+      'SELECT id, user_id, name, position, properties_json, created_at FROM profiles WHERE user_id = ? ORDER BY position ASC, created_at ASC',
       [userId]
     );
     const [dials] = await db.execute(
@@ -81,7 +97,10 @@ app.get('/api/sync', async (req, res) => {
       dials: dialsByProfile[p.id] ?? [],
     }));
 
-    res.json(result);
+    res.json({
+      profiles: result,
+      settings: userSettings,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch sync state' });
@@ -108,8 +127,39 @@ app.get('/api/sync', async (req, res) => {
 app.post('/api/sync', async (req, res) => {
   const payload = req.body;
   const userId = req.auth.userId;
-  if (!Array.isArray(payload)) {
-    return res.status(400).json({ error: 'Body must be an array of profiles' });
+  let profilesPayload = [];
+  let incomingSettings = null;
+
+  if (Array.isArray(payload)) {
+    // Backward-compatible shape from older clients
+    profilesPayload = payload;
+  } else if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    if (!Array.isArray(payload.profiles)) {
+      return res.status(400).json({ error: 'Body.profiles must be an array' });
+    }
+    profilesPayload = payload.profiles;
+    if (payload.settings !== undefined) {
+      if (!payload.settings || typeof payload.settings !== 'object' || Array.isArray(payload.settings)) {
+        return res.status(400).json({ error: 'Body.settings must be an object' });
+      }
+      incomingSettings = payload.settings;
+    }
+    if (payload.settings_json !== undefined) {
+      if (typeof payload.settings_json !== 'string') {
+        return res.status(400).json({ error: 'Body.settings_json must be a JSON string' });
+      }
+      try {
+        const parsed = JSON.parse(payload.settings_json);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          return res.status(400).json({ error: 'Body.settings_json must encode an object' });
+        }
+        incomingSettings = { ...(incomingSettings || {}), ...parsed };
+      } catch {
+        return res.status(400).json({ error: 'Body.settings_json is invalid JSON' });
+      }
+    }
+  } else {
+    return res.status(400).json({ error: 'Body must be an array or object with profiles[]' });
   }
 
   const conn = await db.getConnection();
@@ -119,21 +169,38 @@ app.post('/api/sync', async (req, res) => {
     const incomingProfileIds = [];
     const incomingDialIds    = [];
 
-    for (const profile of payload) {
+    for (const profile of profilesPayload) {
       if (!profile.id || typeof profile.id !== 'string') continue;
       if (!profile.name || typeof profile.name !== 'string') continue;
 
       incomingProfileIds.push(profile.id);
 
+      let profileProperties = {};
+      if (profile.properties && typeof profile.properties === 'object' && !Array.isArray(profile.properties)) {
+        profileProperties = { ...profile.properties };
+      }
+      if (typeof profile.properties_json === 'string' && profile.properties_json.trim()) {
+        try {
+          const parsed = JSON.parse(profile.properties_json);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            profileProperties = { ...profileProperties, ...parsed };
+          }
+        } catch {
+          // Ignore malformed JSON and keep parsed object from properties.
+        }
+      }
+      const profilePropertiesJson = JSON.stringify(profileProperties);
+
       // Upsert profile
       await conn.execute(
-        `INSERT INTO profiles (id, user_id, name, position)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO profiles (id, user_id, name, position, properties_json)
+         VALUES (?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            user_id = VALUES(user_id),
            name = VALUES(name),
-           position = VALUES(position)`,
-        [profile.id, userId, profile.name.trim().slice(0, 100), Number(profile.position) || 0]
+           position = VALUES(position),
+           properties_json = VALUES(properties_json)`,
+        [profile.id, userId, profile.name.trim().slice(0, 100), Number(profile.position) || 0, profilePropertiesJson]
       );
 
       const dials = Array.isArray(profile.dials) ? profile.dials : [];
@@ -257,6 +324,13 @@ app.post('/api/sync', async (req, res) => {
       await conn.execute('DELETE FROM profiles WHERE user_id = ?', [userId]);
     }
 
+    if (incomingSettings && typeof incomingSettings === 'object' && !Array.isArray(incomingSettings)) {
+      await conn.execute(
+        'UPDATE users SET settings_json = ? WHERE id = ?',
+        [JSON.stringify(incomingSettings), userId]
+      );
+    }
+
     await conn.commit();
     res.status(204).end();
   } catch (err) {
@@ -309,6 +383,7 @@ async function ensureSchema() {
       username VARCHAR(100) NOT NULL,
       password_hash VARCHAR(255) NOT NULL,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
+      settings_json LONGTEXT NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       UNIQUE KEY uq_users_username (username)
@@ -321,6 +396,7 @@ async function ensureSchema() {
       user_id VARCHAR(36) NULL,
       name VARCHAR(100) NOT NULL,
       position INT NOT NULL DEFAULT 0,
+      properties_json LONGTEXT NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
@@ -350,6 +426,15 @@ async function ensureSchema() {
     await db.execute('ALTER TABLE profiles ADD COLUMN user_id VARCHAR(36) NULL AFTER id');
   }
 
+  const [userSettingsColumns] = await db.execute(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'settings_json'`
+  );
+  if (userSettingsColumns.length === 0) {
+    await db.execute('ALTER TABLE users ADD COLUMN settings_json LONGTEXT NULL AFTER is_active');
+  }
+
   const [profileIndexRows] = await db.execute(
     `SELECT INDEX_NAME
      FROM INFORMATION_SCHEMA.STATISTICS
@@ -357,6 +442,15 @@ async function ensureSchema() {
   );
   if (profileIndexRows.length === 0) {
     await db.execute('CREATE INDEX idx_profiles_user ON profiles(user_id)');
+  }
+
+  const [profilePropertiesColumns] = await db.execute(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'profiles' AND COLUMN_NAME = 'properties_json'`
+  );
+  if (profilePropertiesColumns.length === 0) {
+    await db.execute('ALTER TABLE profiles ADD COLUMN properties_json LONGTEXT NULL AFTER position');
   }
 
   const [dialSettingsColumns] = await db.execute(
