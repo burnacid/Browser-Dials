@@ -162,6 +162,19 @@ input[type="password"]:focus {
   flex-wrap: wrap;
 }
 
+#sync-server-fields > * + * {
+  margin-top: 8px;
+}
+
+#sync-login-state-row {
+  justify-content: space-between;
+}
+
+#sync-login-state {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
 /* ─── Toggle ─────────────────────────────────────────────────────────────────── */
 .toggle-row {
   display: flex;
@@ -276,6 +289,13 @@ input[type="password"]:focus {
 }
 #splash-status.ok  { color: #16a34a; }
 #splash-status.err { color: var(--danger); }
+
+#sync-status {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+#sync-status.ok  { color: #16a34a; }
+#sync-status.err { color: var(--danger); }
 
 .splash-preview {
   width: 100%;

@@ -4,6 +4,11 @@
 const STORAGE_KEY_STATE       = 'dials_state';      // { profiles: […] }
 const STORAGE_KEY_ACTIVE      = 'active_profile_id';
 const STORAGE_KEY_OPEN_IN_TAB = 'open_in_new_tab';
+const STORAGE_KEY_SYNC_MODE = 'sync_mode';
+const STORAGE_KEY_SYNC_SERVER_URL = 'sync_server_url';
+const STORAGE_KEY_SYNC_API_KEY = 'sync_api_key';
+const STORAGE_KEY_SYNC_USERNAME = 'sync_username';
+const STORAGE_KEY_SYNC_PASSWORD = 'sync_password';
 const STORAGE_KEY_SEARCH_ENABLED = 'search_enabled';
 const STORAGE_KEY_SEARCH_ENGINE  = 'search_engine';
 const STORAGE_KEY_SPLASH_DATA = 'splash_bg_data';
@@ -23,6 +28,11 @@ const AVATAR_COLOURS = [
 let state = { profiles: [] };  // { profiles: [{ id, name, position, dials: [] }] }
 let activeProfileId = null;
 let openInNewTab = false;
+let syncMode = 'local';
+let syncServerUrl = '';
+let syncApiKey = '';
+let syncUsername = '';
+let syncPassword = '';
 let searchEnabled = true;
 let searchEngine = 'google';
 let splashData = '';
@@ -47,6 +57,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     STORAGE_KEY_STATE,
     STORAGE_KEY_ACTIVE,
     STORAGE_KEY_OPEN_IN_TAB,
+    STORAGE_KEY_SYNC_MODE,
+    STORAGE_KEY_SYNC_SERVER_URL,
+    STORAGE_KEY_SYNC_API_KEY,
+    STORAGE_KEY_SYNC_USERNAME,
+    STORAGE_KEY_SYNC_PASSWORD,
     STORAGE_KEY_SEARCH_ENABLED,
     STORAGE_KEY_SEARCH_ENGINE,
     STORAGE_KEY_SPLASH_DATA,
@@ -60,6 +75,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   state         = stored[STORAGE_KEY_STATE]       || { profiles: [] };
   activeProfileId = stored[STORAGE_KEY_ACTIVE]    || null;
   openInNewTab  = stored[STORAGE_KEY_OPEN_IN_TAB] ?? false;
+  syncMode = stored[STORAGE_KEY_SYNC_MODE] || 'local';
+  syncServerUrl = stored[STORAGE_KEY_SYNC_SERVER_URL] || '';
+  syncApiKey = stored[STORAGE_KEY_SYNC_API_KEY] || '';
+  syncUsername = stored[STORAGE_KEY_SYNC_USERNAME] || '';
+  syncPassword = stored[STORAGE_KEY_SYNC_PASSWORD] || '';
   searchEnabled = stored[STORAGE_KEY_SEARCH_ENABLED] ?? true;
   searchEngine  = stored[STORAGE_KEY_SEARCH_ENGINE] || 'google';
   splashData    = stored[STORAGE_KEY_SPLASH_DATA] || '';
@@ -69,15 +89,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   splashQuery = stored[STORAGE_KEY_SPLASH_QUERY] || '';
   splashRefreshToken = stored[STORAGE_KEY_SPLASH_REFRESH] || 0;
 
-  // Default to first profile if active not found
-  if (!state.profiles.find(p => p.id === activeProfileId)) {
-    activeProfileId = state.profiles[0]?.id ?? null;
-  }
+  await loadInitialState();
 
   renderAll();
   applySplashBackground();
   applySearchUi();
-  setSyncStatus('Local only');
+  setSyncStatus(syncMode === 'server' ? 'Server sync enabled' : 'Local only');
 });
 
 // Listen for local setting/state changes
@@ -92,6 +109,19 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (changes[STORAGE_KEY_OPEN_IN_TAB]) {
     openInNewTab = changes[STORAGE_KEY_OPEN_IN_TAB].newValue ?? false;
+  }
+  if (changes[STORAGE_KEY_SYNC_MODE] || changes[STORAGE_KEY_SYNC_SERVER_URL] || changes[STORAGE_KEY_SYNC_API_KEY] || changes[STORAGE_KEY_SYNC_USERNAME] || changes[STORAGE_KEY_SYNC_PASSWORD]) {
+    syncMode = (changes[STORAGE_KEY_SYNC_MODE]?.newValue) ?? syncMode;
+    syncServerUrl = (changes[STORAGE_KEY_SYNC_SERVER_URL]?.newValue) ?? syncServerUrl;
+    syncApiKey = (changes[STORAGE_KEY_SYNC_API_KEY]?.newValue) ?? syncApiKey;
+    syncUsername = (changes[STORAGE_KEY_SYNC_USERNAME]?.newValue) ?? syncUsername;
+    syncPassword = (changes[STORAGE_KEY_SYNC_PASSWORD]?.newValue) ?? syncPassword;
+    loadInitialState().then(() => {
+      renderAll();
+      setSyncStatus(syncMode === 'server' ? 'Server sync enabled' : 'Local only');
+    }).catch(err => {
+      setSyncStatus(`Sync error: ${err.message}`, true);
+    });
   }
   if (changes[STORAGE_KEY_SEARCH_ENABLED]) {
     searchEnabled = changes[STORAGE_KEY_SEARCH_ENABLED].newValue ?? true;
@@ -711,10 +741,118 @@ async function handleRemoveIcon(dialId) {
 }
 
 async function saveLocal() {
+  if (syncMode === 'server') {
+    try {
+      await pushStateToServer();
+    } catch (err) {
+      setSyncStatus(`Sync failed: ${err.message}`, true);
+    }
+  }
   await chrome.storage.local.set({
     [STORAGE_KEY_STATE]:  state,
     [STORAGE_KEY_ACTIVE]: activeProfileId,
   });
+}
+
+async function loadInitialState() {
+  if (syncMode === 'server') {
+    if (!syncServerUrl || !syncApiKey || !syncUsername || !syncPassword) {
+      setSyncStatus('Server mode requires URL, API key, username, and password.', true);
+      return;
+    }
+    try {
+      const serverProfiles = await fetchServerState();
+      state = normalizeServerProfiles(serverProfiles);
+      if (!state.profiles.find(p => p.id === activeProfileId)) {
+        activeProfileId = state.profiles[0]?.id ?? null;
+      }
+      await chrome.storage.local.set({
+        [STORAGE_KEY_STATE]: state,
+        [STORAGE_KEY_ACTIVE]: activeProfileId,
+      });
+      return;
+    } catch (err) {
+      setSyncStatus(`Sync unavailable, using cache: ${err.message}`, true);
+    }
+  }
+
+  if (!state.profiles.find(p => p.id === activeProfileId)) {
+    activeProfileId = state.profiles[0]?.id ?? null;
+  }
+}
+
+function normalizeServerProfiles(rawProfiles) {
+  if (!Array.isArray(rawProfiles)) return { profiles: [] };
+  return {
+    profiles: rawProfiles.map((profile, pIdx) => {
+      const profileId = String(profile.id || uuid());
+      const dials = Array.isArray(profile.dials) ? profile.dials : [];
+      return {
+        id: profileId,
+        name: String(profile.name || 'Profile'),
+        position: Number.isInteger(profile.position) ? profile.position : pIdx,
+        dials: dials.map((dial, dIdx) => ({
+          id: String(dial.id || uuid()),
+          profile_id: profileId,
+          type: 'dial',
+          title: String(dial.title || ''),
+          url: String(dial.url || 'https://example.com'),
+          position: Number.isInteger(dial.position) ? dial.position : dIdx,
+          icon_data: null,
+        })),
+      };
+    }),
+  };
+}
+
+function toServerProfiles(localState) {
+  const profiles = Array.isArray(localState?.profiles) ? localState.profiles : [];
+  return profiles.map(profile => ({
+    id: String(profile.id),
+    name: String(profile.name || 'Profile'),
+    position: Number.isInteger(profile.position) ? profile.position : 0,
+    dials: (Array.isArray(profile.dials) ? profile.dials : [])
+      .filter(dial => !isFolder(dial) && typeof dial.url === 'string' && dial.url)
+      .map((dial, idx) => ({
+        id: String(dial.id),
+        title: String(dial.title || ''),
+        url: String(dial.url),
+        position: Number.isInteger(dial.position) ? dial.position : idx,
+      })),
+  }));
+}
+
+async function fetchServerState() {
+  const resp = await fetch(`${syncServerUrl}/api/sync`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${syncApiKey}`,
+      'X-Sync-User': syncUsername,
+      'X-Sync-Password': syncPassword,
+    },
+  });
+  if (!resp.ok) {
+    throw new Error(`HTTP ${resp.status}`);
+  }
+  return resp.json();
+}
+
+async function pushStateToServer() {
+  const payload = toServerProfiles(state);
+  const resp = await fetch(`${syncServerUrl}/api/sync`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${syncApiKey}`,
+      'X-Sync-User': syncUsername,
+      'X-Sync-Password': syncPassword,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    throw new Error(`HTTP ${resp.status}`);
+  }
+  setSyncStatus('Synced', false);
 }
 
 // ─── UI helpers ───────────────────────────────────────────────────────────────

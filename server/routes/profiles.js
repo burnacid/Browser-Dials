@@ -9,8 +9,10 @@ const router = express.Router();
 // ─── List profiles ───────────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
+    const userId = req.auth.userId;
     const [rows] = await db.execute(
-      'SELECT id, name, position, created_at FROM profiles ORDER BY position ASC, created_at ASC'
+      'SELECT id, user_id, name, position, created_at FROM profiles WHERE user_id = ? ORDER BY position ASC, created_at ASC',
+      [userId]
     );
     res.json(rows);
   } catch (err) {
@@ -22,6 +24,7 @@ router.get('/', async (req, res) => {
 // ─── Create profile ───────────────────────────────────────────────────────────
 router.post('/', async (req, res) => {
   const { name, position } = req.body ?? {};
+  const userId = req.auth.userId;
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     return res.status(400).json({ error: 'name is required' });
   }
@@ -34,10 +37,10 @@ router.post('/', async (req, res) => {
 
   try {
     await db.execute(
-      'INSERT INTO profiles (id, name, position) VALUES (?, ?, ?)',
-      [id, name.trim(), pos]
+      'INSERT INTO profiles (id, user_id, name, position) VALUES (?, ?, ?, ?)',
+      [id, userId, name.trim(), pos]
     );
-    const [rows] = await db.execute('SELECT * FROM profiles WHERE id = ?', [id]);
+    const [rows] = await db.execute('SELECT * FROM profiles WHERE id = ? AND user_id = ?', [id, userId]);
     res.status(201).json(rows[0]);
   } catch (err) {
     console.error(err);
@@ -48,6 +51,7 @@ router.post('/', async (req, res) => {
 // ─── Update profile ───────────────────────────────────────────────────────────
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
+  const userId = req.auth.userId;
   const { name, position } = req.body ?? {};
 
   const fields = [];
@@ -80,13 +84,13 @@ router.put('/:id', async (req, res) => {
 
   try {
     const [result] = await db.execute(
-      `UPDATE profiles SET ${fields.join(', ')} WHERE id = ?`,
-      values
+      `UPDATE profiles SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`,
+      [...values, userId]
     );
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Profile not found' });
     }
-    const [rows] = await db.execute('SELECT * FROM profiles WHERE id = ?', [id]);
+    const [rows] = await db.execute('SELECT * FROM profiles WHERE id = ? AND user_id = ?', [id, userId]);
     res.json(rows[0]);
   } catch (err) {
     console.error(err);
@@ -97,8 +101,9 @@ router.put('/:id', async (req, res) => {
 // ─── Delete profile ───────────────────────────────────────────────────────────
 router.delete('/:id', async (req, res) => {
   const { id } = req.params;
+  const userId = req.auth.userId;
   try {
-    const [result] = await db.execute('DELETE FROM profiles WHERE id = ?', [id]);
+    const [result] = await db.execute('DELETE FROM profiles WHERE id = ? AND user_id = ?', [id, userId]);
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Profile not found' });
     }

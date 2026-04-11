@@ -19,6 +19,10 @@
   "permissions": [
     "storage"
   ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
   "action": {
     "default_title": "Browser Dials Settings",
     "default_icon": {

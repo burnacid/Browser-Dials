@@ -12,9 +12,82 @@
       <img src="icons/icon48.png" alt="" class="logo" />
       <div>
         <h1>Browser Dials</h1>
-        <p class="subtitle">Settings (Local Only)</p>
+        <p class="subtitle" id="settings-subtitle">Settings</p>
       </div>
     </header>
+
+    <!-- ── Sync Mode ───────────────────────────────────────────────────── -->
+    <section class="card" id="section-sync">
+      <h2>Storage Mode</h2>
+      <p class="section-hint">Choose between local-only storage or syncing with your self-hosted server.</p>
+      <p class="section-hint">Server sync currently syncs profiles and dial links. Folder contents remain local.</p>
+
+      <div class="field">
+        <label for="sync-mode">Mode</label>
+        <select id="sync-mode">
+          <option value="local">Local only</option>
+          <option value="server">Sync to server</option>
+        </select>
+      </div>
+
+      <div id="sync-server-fields">
+        <div class="field" id="sync-server-url-row">
+          <label for="sync-server-url">Server URL</label>
+          <input id="sync-server-url" type="url" placeholder="http://localhost:3737" maxlength="500" />
+        </div>
+
+        <div class="field" id="sync-api-key-row">
+          <label for="sync-api-key">API key</label>
+          <input id="sync-api-key" type="password" placeholder="Paste API key" maxlength="500" />
+        </div>
+
+        <div class="field" id="sync-auth-view-row">
+          <label for="sync-auth-view">Account action</label>
+          <select id="sync-auth-view">
+            <option value="login">Logon</option>
+            <option value="register">Create user</option>
+          </select>
+        </div>
+
+        <div class="field-row" id="sync-login-state-row">
+          <span id="sync-login-state" aria-live="polite"></span>
+          <button id="btn-sync-logout" class="btn-secondary" type="button">Log out</button>
+        </div>
+
+        <div id="sync-login-section">
+          <div class="field">
+            <label for="sync-username">Sync username</label>
+            <input id="sync-username" type="text" placeholder="e.g. alice" maxlength="100" />
+          </div>
+
+          <div class="field">
+            <label for="sync-password">Sync password</label>
+            <input id="sync-password" type="password" placeholder="User password" maxlength="200" />
+          </div>
+
+          <div class="field-row" id="sync-login-actions-row">
+            <button id="btn-sync-save" class="btn-secondary">Save Sync Settings</button>
+            <button id="btn-sync-test" class="btn-secondary">Test Connection</button>
+            <span id="sync-status" aria-live="polite"></span>
+          </div>
+        </div>
+
+        <div id="sync-register-section">
+          <div class="field">
+            <label for="register-username">Register new account</label>
+            <input id="register-username" type="text" placeholder="new username" maxlength="100" />
+          </div>
+
+          <div class="field">
+            <input id="register-password" type="password" placeholder="new password" maxlength="200" />
+          </div>
+
+          <div class="field-row">
+            <button id="btn-register-account" class="btn-secondary">Register Account</button>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <!-- ── Preferences ──────────────────────────────────────────────────── -->
     <section class="card" id="section-prefs">

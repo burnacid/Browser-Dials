@@ -13,13 +13,29 @@ CREATE TABLE IF NOT EXISTS `api_keys` (
   UNIQUE KEY `uq_key_value` (`key_value`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ─── Users ───────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS `users` (
+  `id`            VARCHAR(36)  NOT NULL,
+  `username`      VARCHAR(100) NOT NULL,
+  `password_hash` VARCHAR(255) NOT NULL,
+  `is_active`     TINYINT(1)   NOT NULL DEFAULT 1,
+  `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_users_username` (`username`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ─── Profiles ─────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS `profiles` (
   `id`         VARCHAR(36)  NOT NULL,
+  `user_id`    VARCHAR(36)  NOT NULL,
   `name`       VARCHAR(100) NOT NULL,
   `position`   INT          NOT NULL DEFAULT 0,
   `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_profiles_user` (`user_id`),
+  CONSTRAINT `fk_profiles_user`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+    ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ─── Dials ────────────────────────────────────────────────────────────────────

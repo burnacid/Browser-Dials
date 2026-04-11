@@ -3,6 +3,14 @@
 const STORAGE_KEY_STATE       = 'dials_state';
 const STORAGE_KEY_ACTIVE      = 'active_profile_id';
 const STORAGE_KEY_OPEN_IN_TAB = 'open_in_new_tab';
+const STORAGE_KEY_SYNC_MODE = 'sync_mode';
+const STORAGE_KEY_SYNC_SERVER_URL = 'sync_server_url';
+const STORAGE_KEY_SYNC_API_KEY = 'sync_api_key';
+const STORAGE_KEY_SYNC_USERNAME = 'sync_username';
+const STORAGE_KEY_SYNC_PASSWORD = 'sync_password';
+const STORAGE_KEY_SYNC_AUTH_VIEW = 'sync_auth_view';
+const STORAGE_KEY_SYNC_LOGGED_IN = 'sync_logged_in';
+const STORAGE_KEY_SYNC_LOGGED_USER = 'sync_logged_user';
 const STORAGE_KEY_SEARCH_ENABLED = 'search_enabled';
 const STORAGE_KEY_SEARCH_ENGINE  = 'search_engine';
 const STORAGE_KEY_SPLASH_DATA = 'splash_bg_data';
@@ -13,12 +21,22 @@ const STORAGE_KEY_SPLASH_QUERY     = 'splash_public_query';
 const STORAGE_KEY_SPLASH_REFRESH   = 'splash_public_refresh';
 
 let state = { profiles: [] };
+let syncLoggedIn = false;
+let syncLoggedUser = '';
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   const stored = await chromeGet([
     STORAGE_KEY_STATE,
     STORAGE_KEY_OPEN_IN_TAB,
+    STORAGE_KEY_SYNC_MODE,
+    STORAGE_KEY_SYNC_SERVER_URL,
+    STORAGE_KEY_SYNC_API_KEY,
+    STORAGE_KEY_SYNC_USERNAME,
+    STORAGE_KEY_SYNC_PASSWORD,
+    STORAGE_KEY_SYNC_AUTH_VIEW,
+    STORAGE_KEY_SYNC_LOGGED_IN,
+    STORAGE_KEY_SYNC_LOGGED_USER,
     STORAGE_KEY_SEARCH_ENABLED,
     STORAGE_KEY_SEARCH_ENGINE,
     STORAGE_KEY_SPLASH_DATA,
@@ -30,6 +48,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   state = stored[STORAGE_KEY_STATE] || { profiles: [] };
   document.getElementById('pref-new-tab').checked = stored[STORAGE_KEY_OPEN_IN_TAB] ?? false;
+  document.getElementById('sync-mode').value = stored[STORAGE_KEY_SYNC_MODE] || 'local';
+  document.getElementById('sync-server-url').value = stored[STORAGE_KEY_SYNC_SERVER_URL] || '';
+  document.getElementById('sync-api-key').value = stored[STORAGE_KEY_SYNC_API_KEY] || '';
+  document.getElementById('sync-username').value = stored[STORAGE_KEY_SYNC_USERNAME] || '';
+  document.getElementById('sync-password').value = stored[STORAGE_KEY_SYNC_PASSWORD] || '';
+  document.getElementById('sync-auth-view').value = stored[STORAGE_KEY_SYNC_AUTH_VIEW] || 'login';
+  syncLoggedIn = stored[STORAGE_KEY_SYNC_LOGGED_IN] ?? false;
+  syncLoggedUser = stored[STORAGE_KEY_SYNC_LOGGED_USER] || '';
   document.getElementById('pref-search-enabled').checked = stored[STORAGE_KEY_SEARCH_ENABLED] ?? true;
   document.getElementById('pref-search-engine').value = stored[STORAGE_KEY_SEARCH_ENGINE] || 'google';
   document.getElementById('pref-splash-enabled').checked = stored[STORAGE_KEY_SPLASH_ON] ?? false;
@@ -46,6 +72,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   updateSearchControlState();
   updateSplashControlState();
+  updateSyncControlState();
+  updateSubtitle();
+  updateLoginStateUi();
 
   renderProfiles();
 });
@@ -66,8 +95,8 @@ function renderProfiles() {
   }
 
   for (const profile of sorted) {
-    const li    = document.createElement('li');
-    const name  = document.createElement('span');
+    const li = document.createElement('li');
+    const name = document.createElement('span');
     name.className = 'item-name';
     name.textContent = `${profile.name} (${(profile.dials || []).length} dials)`;
 
@@ -112,17 +141,19 @@ async function deleteProfile(profile) {
 }
 
 async function addProfile() {
-  const input   = document.getElementById('new-profile-name');
-  const name    = input.value.trim();
-  if (!name) { input.focus(); return; }
+  const input = document.getElementById('new-profile-name');
+  const name = input.value.trim();
+  if (!name) {
+    input.focus();
+    return;
+  }
 
-  const newProfile = {
-    id:       uuid(),
+  state.profiles.push({
+    id: uuid(),
     name,
     position: state.profiles.length,
-    dials:    [],
-  };
-  state.profiles.push(newProfile);
+    dials: [],
+  });
   input.value = '';
   await saveState();
   renderProfiles();
@@ -134,6 +165,189 @@ async function clearLocal() {
   state = { profiles: [] };
   renderProfiles();
   setBackupStatus('Local data cleared.', 'ok');
+}
+
+// ─── Sync settings ────────────────────────────────────────────────────────────
+async function saveSyncSettings() {
+  const mode = document.getElementById('sync-mode').value;
+  const rawUrl = document.getElementById('sync-server-url').value.trim();
+  const apiKey = document.getElementById('sync-api-key').value.trim();
+  const username = document.getElementById('sync-username').value.trim();
+  const password = document.getElementById('sync-password').value;
+
+  let normalizedUrl = '';
+  if (mode === 'server') {
+    if (!rawUrl || !apiKey || !username || !password) {
+      setSyncStatus('Server URL, API key, username, and password are required for server mode.', 'err');
+      return;
+    }
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error('bad protocol');
+      }
+      normalizedUrl = parsed.origin;
+    } catch {
+      setSyncStatus('Enter a valid server URL.', 'err');
+      return;
+    }
+  }
+
+  await chrome.storage.local.set({
+    [STORAGE_KEY_SYNC_MODE]: mode,
+    [STORAGE_KEY_SYNC_SERVER_URL]: normalizedUrl,
+    [STORAGE_KEY_SYNC_API_KEY]: apiKey,
+    [STORAGE_KEY_SYNC_USERNAME]: username,
+    [STORAGE_KEY_SYNC_PASSWORD]: password,
+    [STORAGE_KEY_SYNC_AUTH_VIEW]: document.getElementById('sync-auth-view').value,
+  });
+
+  updateSubtitle();
+
+  if (mode === 'server') {
+    setSyncStatus('Sync settings saved. Testing connection...', 'ok');
+    await testSyncConnection();
+    return;
+  }
+
+  syncLoggedIn = false;
+  syncLoggedUser = '';
+  await chrome.storage.local.set({
+    [STORAGE_KEY_SYNC_LOGGED_IN]: false,
+    [STORAGE_KEY_SYNC_LOGGED_USER]: '',
+  });
+  updateLoginStateUi();
+  updateSyncControlState();
+  setSyncStatus('Sync settings saved (local mode).', 'ok');
+}
+
+async function testSyncConnection() {
+  const mode = document.getElementById('sync-mode').value;
+  const rawUrl = document.getElementById('sync-server-url').value.trim();
+  const apiKey = document.getElementById('sync-api-key').value.trim();
+  const username = document.getElementById('sync-username').value.trim();
+  const password = document.getElementById('sync-password').value;
+
+  if (mode !== 'server') {
+    setSyncStatus('Connection test is only available in server mode.', 'err');
+    return;
+  }
+  if (!rawUrl || !apiKey || !username || !password) {
+    setSyncStatus('Enter server URL, API key, username, and password first.', 'err');
+    return;
+  }
+
+  let baseUrl = '';
+  try {
+    const parsed = new URL(rawUrl);
+    baseUrl = parsed.origin;
+  } catch {
+    setSyncStatus('Enter a valid server URL.', 'err');
+    return;
+  }
+
+  setSyncStatus('Testing connection...', 'ok');
+  try {
+    const resp = await fetch(`${baseUrl}/api/sync`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'X-Sync-User': username,
+        'X-Sync-Password': password,
+      },
+    });
+
+    if (resp.ok) {
+      syncLoggedIn = true;
+      syncLoggedUser = username;
+      await chrome.storage.local.set({
+        [STORAGE_KEY_SYNC_LOGGED_IN]: true,
+        [STORAGE_KEY_SYNC_LOGGED_USER]: username,
+      });
+      updateLoginStateUi();
+      updateSyncControlState();
+      setSyncStatus('Connection successful.', 'ok');
+      return;
+    }
+    if (resp.status === 401 || resp.status === 403) {
+      syncLoggedIn = false;
+      syncLoggedUser = '';
+      await chrome.storage.local.set({
+        [STORAGE_KEY_SYNC_LOGGED_IN]: false,
+        [STORAGE_KEY_SYNC_LOGGED_USER]: '',
+      });
+      updateLoginStateUi();
+      updateSyncControlState();
+      setSyncStatus('Connection failed: invalid credentials.', 'err');
+      return;
+    }
+    setSyncStatus(`Connection failed: HTTP ${resp.status}.`, 'err');
+  } catch (err) {
+    setSyncStatus(`Connection failed: ${err.message}`, 'err');
+  }
+}
+
+async function registerAccount() {
+  const rawUrl = document.getElementById('sync-server-url').value.trim();
+  const apiKey = document.getElementById('sync-api-key').value.trim();
+  const username = document.getElementById('register-username').value.trim();
+  const password = document.getElementById('register-password').value;
+
+  if (!rawUrl || !apiKey) {
+    setSyncStatus('Enter server URL and API key before registering.', 'err');
+    return;
+  }
+  if (!username || !password) {
+    setSyncStatus('Enter username and password to register.', 'err');
+    return;
+  }
+
+  let baseUrl = '';
+  try {
+    const parsed = new URL(rawUrl);
+    baseUrl = parsed.origin;
+  } catch {
+    setSyncStatus('Enter a valid server URL.', 'err');
+    return;
+  }
+
+  setSyncStatus('Registering account...', 'ok');
+  try {
+    const resp = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (resp.status === 201) {
+      document.getElementById('sync-username').value = username;
+      document.getElementById('sync-password').value = password;
+      document.getElementById('register-password').value = '';
+      document.getElementById('sync-auth-view').value = 'login';
+      await chrome.storage.local.set({ [STORAGE_KEY_SYNC_AUTH_VIEW]: 'login' });
+      updateSyncControlState();
+      setSyncStatus('Account registered. Credentials copied to sync login fields.', 'ok');
+      return;
+    }
+
+    if (resp.status === 409) {
+      setSyncStatus('Username already exists.', 'err');
+      return;
+    }
+
+    if (resp.status === 401 || resp.status === 403) {
+      setSyncStatus('Invalid API key.', 'err');
+      return;
+    }
+
+    const body = await resp.json().catch(() => ({}));
+    setSyncStatus(body.error ? `Register failed: ${body.error}` : `Register failed: HTTP ${resp.status}`, 'err');
+  } catch (err) {
+    setSyncStatus(`Register failed: ${err.message}`, 'err');
+  }
 }
 
 // ─── Backup / restore ─────────────────────────────────────────────────────────
@@ -230,6 +444,43 @@ document.getElementById('splash-query').addEventListener('change', async e => {
   await chrome.storage.local.set({ [STORAGE_KEY_SPLASH_QUERY]: e.target.value.trim() });
 });
 
+document.getElementById('sync-mode').addEventListener('change', () => {
+  updateSyncControlState();
+  updateSubtitle();
+  setSyncStatus('', 'ok');
+});
+
+document.getElementById('sync-auth-view').addEventListener('change', async e => {
+  await chrome.storage.local.set({ [STORAGE_KEY_SYNC_AUTH_VIEW]: e.target.value });
+  updateSyncControlState();
+});
+
+document.getElementById('btn-sync-logout').addEventListener('click', async () => {
+  syncLoggedIn = false;
+  syncLoggedUser = '';
+  await chrome.storage.local.set({
+    [STORAGE_KEY_SYNC_LOGGED_IN]: false,
+    [STORAGE_KEY_SYNC_LOGGED_USER]: '',
+  });
+  updateLoginStateUi();
+  updateSyncControlState();
+  setSyncStatus('Logged out. You can log on with another account.', 'ok');
+});
+
+['sync-server-url', 'sync-api-key', 'sync-username', 'sync-password'].forEach(id => {
+  document.getElementById(id).addEventListener('input', async () => {
+    if (!syncLoggedIn) return;
+    syncLoggedIn = false;
+    syncLoggedUser = '';
+    await chrome.storage.local.set({
+      [STORAGE_KEY_SYNC_LOGGED_IN]: false,
+      [STORAGE_KEY_SYNC_LOGGED_USER]: '',
+    });
+    updateLoginStateUi();
+    updateSyncControlState();
+  });
+});
+
 async function uploadSplashImage(file) {
   if (!file) return;
   if (file.size > 2 * 1024 * 1024) {
@@ -277,21 +528,148 @@ function updateSplashControlState() {
   document.getElementById('btn-splash-clear').disabled = usingPublic;
 }
 
+function updateSyncControlState() {
+  const mode = document.getElementById('sync-mode').value;
+  const disabled = mode !== 'server';
+  const serverFields = document.getElementById('sync-server-fields');
+  const authView = document.getElementById('sync-auth-view').value;
+  const loginSection = document.getElementById('sync-login-section');
+  const registerSection = document.getElementById('sync-register-section');
+  const serverUrlRow = document.getElementById('sync-server-url-row');
+  const apiKeyRow = document.getElementById('sync-api-key-row');
+  const authViewRow = document.getElementById('sync-auth-view-row');
+  const loginStateRow = document.getElementById('sync-login-state-row');
+  const loginActionsRow = document.getElementById('sync-login-actions-row');
+  serverFields.style.display = disabled ? 'none' : 'block';
+  document.getElementById('sync-server-url').disabled = disabled;
+  document.getElementById('sync-api-key').disabled = disabled;
+  document.getElementById('sync-username').disabled = disabled;
+  document.getElementById('sync-password').disabled = disabled;
+  document.getElementById('btn-sync-test').disabled = disabled;
+  document.getElementById('btn-sync-save').disabled = disabled;
+  document.getElementById('sync-auth-view').disabled = disabled;
+  document.getElementById('btn-sync-logout').disabled = disabled || !syncLoggedIn;
+
+  if (disabled) {
+    serverUrlRow.style.display = 'none';
+    apiKeyRow.style.display = 'none';
+    authViewRow.style.display = 'none';
+    loginStateRow.style.display = 'none';
+    loginActionsRow.style.display = 'none';
+    loginSection.style.display = 'none';
+    registerSection.style.display = 'none';
+    return;
+  }
+
+  if (syncLoggedIn) {
+    serverUrlRow.style.display = 'none';
+    apiKeyRow.style.display = 'none';
+    authViewRow.style.display = 'none';
+    loginStateRow.style.display = 'flex';
+    loginSection.style.display = 'none';
+    loginActionsRow.style.display = 'none';
+    registerSection.style.display = 'none';
+    return;
+  }
+
+  serverUrlRow.style.display = 'flex';
+  apiKeyRow.style.display = 'flex';
+  authViewRow.style.display = 'flex';
+  loginStateRow.style.display = 'none';
+  loginActionsRow.style.display = 'flex';
+
+  loginSection.style.display = authView === 'login' ? 'block' : 'none';
+  registerSection.style.display = (!syncLoggedIn && authView === 'register') ? 'block' : 'none';
+}
+
+function updateLoginStateUi() {
+  const el = document.getElementById('sync-login-state');
+  el.textContent = syncLoggedIn
+    ? `Logged in as ${syncLoggedUser}`
+    : 'Not logged in';
+}
+
+function updateSubtitle() {
+  const mode = document.getElementById('sync-mode').value;
+  const subtitle = document.getElementById('settings-subtitle');
+  subtitle.textContent = mode === 'server' ? 'Settings (Server Sync)' : 'Settings (Local Only)';
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 async function saveState() {
+  const syncConfig = await getSyncConfig();
+  if (syncConfig.mode === 'server' && syncConfig.serverUrl && syncConfig.apiKey && syncConfig.username && syncConfig.password) {
+    try {
+      await pushStateToServer(syncConfig, state);
+    } catch (err) {
+      setSyncStatus(`Sync failed: ${err.message}`, 'err');
+    }
+  }
   await chrome.storage.local.set({ [STORAGE_KEY_STATE]: state });
 }
 
+async function getSyncConfig() {
+  const stored = await chromeGet([
+    STORAGE_KEY_SYNC_MODE,
+    STORAGE_KEY_SYNC_SERVER_URL,
+    STORAGE_KEY_SYNC_API_KEY,
+    STORAGE_KEY_SYNC_USERNAME,
+    STORAGE_KEY_SYNC_PASSWORD,
+  ]);
+  return {
+    mode: stored[STORAGE_KEY_SYNC_MODE] || 'local',
+    serverUrl: stored[STORAGE_KEY_SYNC_SERVER_URL] || '',
+    apiKey: stored[STORAGE_KEY_SYNC_API_KEY] || '',
+    username: stored[STORAGE_KEY_SYNC_USERNAME] || '',
+    password: stored[STORAGE_KEY_SYNC_PASSWORD] || '',
+  };
+}
+
+async function pushStateToServer(syncConfig, localState) {
+  const serverProfiles = (Array.isArray(localState?.profiles) ? localState.profiles : []).map(profile => ({
+    id: String(profile.id),
+    name: String(profile.name || 'Profile'),
+    position: Number.isInteger(profile.position) ? profile.position : 0,
+    dials: (Array.isArray(profile.dials) ? profile.dials : [])
+      .filter(dial => dial?.type !== 'folder' && typeof dial?.url === 'string' && dial.url)
+      .map((dial, idx) => ({
+        id: String(dial.id),
+        title: String(dial.title || ''),
+        url: String(dial.url),
+        position: Number.isInteger(dial.position) ? dial.position : idx,
+      })),
+  }));
+
+  const resp = await fetch(`${syncConfig.serverUrl}/api/sync`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${syncConfig.apiKey}`,
+      'X-Sync-User': syncConfig.username,
+      'X-Sync-Password': syncConfig.password,
+    },
+    body: JSON.stringify(serverProfiles),
+  });
+
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+}
+
 function setBackupStatus(msg, type) {
-  const el  = document.getElementById('backup-status');
+  const el = document.getElementById('backup-status');
   el.textContent = msg;
-  el.className   = type;
+  el.className = type;
 }
 
 function setSplashStatus(msg, type) {
-  const el  = document.getElementById('splash-status');
+  const el = document.getElementById('splash-status');
   el.textContent = msg;
-  el.className   = type;
+  el.className = type;
+}
+
+function setSyncStatus(msg, type) {
+  const el = document.getElementById('sync-status');
+  el.textContent = msg;
+  el.className = type;
 }
 
 function uuid() {
@@ -320,9 +698,7 @@ document.getElementById('btn-import').addEventListener('click', () => {
 });
 document.getElementById('import-file').addEventListener('change', e => {
   const file = e.target.files?.[0];
-  if (file) {
-    importJson(file);
-  }
+  if (file) importJson(file);
   e.target.value = '';
 });
 
@@ -332,9 +708,7 @@ document.getElementById('btn-splash-upload').addEventListener('click', () => {
 
 document.getElementById('splash-file').addEventListener('change', e => {
   const file = e.target.files?.[0];
-  if (file) {
-    uploadSplashImage(file).catch(err => setSplashStatus(err.message, 'err'));
-  }
+  if (file) uploadSplashImage(file).catch(err => setSplashStatus(err.message, 'err'));
   e.target.value = '';
 });
 
@@ -344,6 +718,18 @@ document.getElementById('btn-splash-clear').addEventListener('click', () => {
 
 document.getElementById('btn-splash-refresh').addEventListener('click', () => {
   refreshPublicSplash().catch(err => setSplashStatus(err.message, 'err'));
+});
+
+document.getElementById('btn-sync-save').addEventListener('click', () => {
+  saveSyncSettings().catch(err => setSyncStatus(err.message, 'err'));
+});
+
+document.getElementById('btn-sync-test').addEventListener('click', () => {
+  testSyncConnection().catch(err => setSyncStatus(err.message, 'err'));
+});
+
+document.getElementById('btn-register-account').addEventListener('click', () => {
+  registerAccount().catch(err => setSyncStatus(err.message, 'err'));
 });
 
 document.getElementById('new-profile-name').addEventListener('keydown', e => {

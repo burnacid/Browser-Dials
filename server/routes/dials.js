@@ -54,10 +54,15 @@ function validateUrl(raw) {
 // ─── List dials for a profile ─────────────────────────────────────────────────
 router.get('/', async (req, res) => {
   const { profileId } = req.params;
+  const userId = req.auth.userId;
   try {
     const [rows] = await db.execute(
-      'SELECT * FROM dials WHERE profile_id = ? ORDER BY position ASC, created_at ASC',
-      [profileId]
+      `SELECT d.*
+       FROM dials d
+       INNER JOIN profiles p ON p.id = d.profile_id
+       WHERE d.profile_id = ? AND p.user_id = ?
+       ORDER BY d.position ASC, d.created_at ASC`,
+      [profileId, userId]
     );
     res.json(rows);
   } catch (err) {
@@ -69,6 +74,7 @@ router.get('/', async (req, res) => {
 // ─── Create dial ──────────────────────────────────────────────────────────────
 router.post('/', async (req, res) => {
   const { profileId } = req.params;
+  const userId = req.auth.userId;
   const { title, url, position } = req.body ?? {};
 
   if (!url || typeof url !== 'string') {
@@ -82,7 +88,10 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'title too long (max 200 chars)' });
   }
 
-  const [profileRows] = await db.execute('SELECT id FROM profiles WHERE id = ?', [profileId]);
+  const [profileRows] = await db.execute(
+    'SELECT id FROM profiles WHERE id = ? AND user_id = ?',
+    [profileId, userId]
+  );
   if (profileRows.length === 0) {
     return res.status(404).json({ error: 'Profile not found' });
   }
@@ -106,6 +115,7 @@ router.post('/', async (req, res) => {
 // ─── Update dial ──────────────────────────────────────────────────────────────
 router.put('/:dialId', async (req, res) => {
   const { dialId } = req.params;
+  const userId = req.auth.userId;
   const { title, url, position } = req.body ?? {};
 
   const fields = [];
@@ -144,13 +154,22 @@ router.put('/:dialId', async (req, res) => {
 
   try {
     const [result] = await db.execute(
-      `UPDATE dials SET ${fields.join(', ')} WHERE id = ?`,
-      values
+      `UPDATE dials d
+       INNER JOIN profiles p ON p.id = d.profile_id
+       SET ${fields.join(', ')}
+       WHERE d.id = ? AND p.user_id = ?`,
+      [...values, userId]
     );
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Dial not found' });
     }
-    const [rows] = await db.execute('SELECT * FROM dials WHERE id = ?', [dialId]);
+    const [rows] = await db.execute(
+      `SELECT d.*
+       FROM dials d
+       INNER JOIN profiles p ON p.id = d.profile_id
+       WHERE d.id = ? AND p.user_id = ?`,
+      [dialId, userId]
+    );
     res.json(rows[0]);
   } catch (err) {
     console.error(err);
@@ -161,13 +180,26 @@ router.put('/:dialId', async (req, res) => {
 // ─── Delete dial ──────────────────────────────────────────────────────────────
 router.delete('/:dialId', async (req, res) => {
   const { dialId } = req.params;
+  const userId = req.auth.userId;
   try {
-    const [existing] = await db.execute('SELECT icon_path FROM dials WHERE id = ?', [dialId]);
+    const [existing] = await db.execute(
+      `SELECT d.icon_path
+       FROM dials d
+       INNER JOIN profiles p ON p.id = d.profile_id
+       WHERE d.id = ? AND p.user_id = ?`,
+      [dialId, userId]
+    );
     if (existing.length === 0) {
       return res.status(404).json({ error: 'Dial not found' });
     }
     safeDeleteFile(existing[0].icon_path);
-    await db.execute('DELETE FROM dials WHERE id = ?', [dialId]);
+    await db.execute(
+      `DELETE d
+       FROM dials d
+       INNER JOIN profiles p ON p.id = d.profile_id
+       WHERE d.id = ? AND p.user_id = ?`,
+      [dialId, userId]
+    );
     res.status(204).end();
   } catch (err) {
     console.error(err);
@@ -178,12 +210,19 @@ router.delete('/:dialId', async (req, res) => {
 // ─── Upload custom icon ───────────────────────────────────────────────────────
 router.post('/:dialId/icon', upload.single('icon'), async (req, res) => {
   const { dialId } = req.params;
+  const userId = req.auth.userId;
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
   try {
-    const [existing] = await db.execute('SELECT icon_path FROM dials WHERE id = ?', [dialId]);
+    const [existing] = await db.execute(
+      `SELECT d.icon_path
+       FROM dials d
+       INNER JOIN profiles p ON p.id = d.profile_id
+       WHERE d.id = ? AND p.user_id = ?`,
+      [dialId, userId]
+    );
     if (existing.length === 0) {
       safeDeleteFile(req.file.filename);
       return res.status(404).json({ error: 'Dial not found' });
@@ -192,8 +231,20 @@ router.post('/:dialId/icon', upload.single('icon'), async (req, res) => {
     safeDeleteFile(existing[0].icon_path);
 
     const iconPath = req.file.filename;
-    await db.execute('UPDATE dials SET icon_path = ? WHERE id = ?', [iconPath, dialId]);
-    const [rows] = await db.execute('SELECT * FROM dials WHERE id = ?', [dialId]);
+    await db.execute(
+      `UPDATE dials d
+       INNER JOIN profiles p ON p.id = d.profile_id
+       SET d.icon_path = ?
+       WHERE d.id = ? AND p.user_id = ?`,
+      [iconPath, dialId, userId]
+    );
+    const [rows] = await db.execute(
+      `SELECT d.*
+       FROM dials d
+       INNER JOIN profiles p ON p.id = d.profile_id
+       WHERE d.id = ? AND p.user_id = ?`,
+      [dialId, userId]
+    );
     res.json(rows[0]);
   } catch (err) {
     safeDeleteFile(req.file?.filename);
@@ -213,13 +264,26 @@ router.use((err, req, res, next) => {
 // ─── Delete custom icon ───────────────────────────────────────────────────────
 router.delete('/:dialId/icon', async (req, res) => {
   const { dialId } = req.params;
+  const userId = req.auth.userId;
   try {
-    const [existing] = await db.execute('SELECT icon_path FROM dials WHERE id = ?', [dialId]);
+    const [existing] = await db.execute(
+      `SELECT d.icon_path
+       FROM dials d
+       INNER JOIN profiles p ON p.id = d.profile_id
+       WHERE d.id = ? AND p.user_id = ?`,
+      [dialId, userId]
+    );
     if (existing.length === 0) {
       return res.status(404).json({ error: 'Dial not found' });
     }
     safeDeleteFile(existing[0].icon_path);
-    await db.execute('UPDATE dials SET icon_path = NULL WHERE id = ?', [dialId]);
+    await db.execute(
+      `UPDATE dials d
+       INNER JOIN profiles p ON p.id = d.profile_id
+       SET d.icon_path = NULL
+       WHERE d.id = ? AND p.user_id = ?`,
+      [dialId, userId]
+    );
     res.status(204).end();
   } catch (err) {
     console.error(err);

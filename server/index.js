@@ -7,7 +7,10 @@ const cors       = require('cors');
 const path       = require('path');
 const { v4: uuidv4 } = require('uuid');
 const db         = require('./db');
+const { hashPassword } = require('./security');
+const requireApiKey = require('./middleware/apiKey');
 const requireAuth = require('./middleware/auth');
+const authRouter = require('./routes/auth');
 const profilesRouter = require('./routes/profiles');
 const dialsRouter    = require('./routes/dials');
 
@@ -37,6 +40,9 @@ app.use(express.json({ limit: '1mb' }));
 // ─── Static uploads ───────────────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// ─── Registration route (API key only) ───────────────────────────────────────
+app.use('/api/auth', requireApiKey, authRouter);
+
 // ─── Auth on all /api routes ──────────────────────────────────────────────────
 app.use('/api', requireAuth);
 
@@ -49,11 +55,18 @@ app.use('/api/dials', dialsRouter);
 // ─── Full-state sync — GET ────────────────────────────────────────────────────
 app.get('/api/sync', async (req, res) => {
   try {
+    const userId = req.auth.userId;
     const [profiles] = await db.execute(
-      'SELECT id, name, position, created_at FROM profiles ORDER BY position ASC, created_at ASC'
+      'SELECT id, user_id, name, position, created_at FROM profiles WHERE user_id = ? ORDER BY position ASC, created_at ASC',
+      [userId]
     );
     const [dials] = await db.execute(
-      'SELECT * FROM dials ORDER BY position ASC, created_at ASC'
+      `SELECT d.*
+       FROM dials d
+       INNER JOIN profiles p ON p.id = d.profile_id
+       WHERE p.user_id = ?
+       ORDER BY d.position ASC, d.created_at ASC`,
+      [userId]
     );
 
     // Nest dials inside their profile
@@ -94,6 +107,7 @@ app.get('/api/sync', async (req, res) => {
  */
 app.post('/api/sync', async (req, res) => {
   const payload = req.body;
+  const userId = req.auth.userId;
   if (!Array.isArray(payload)) {
     return res.status(400).json({ error: 'Body must be an array of profiles' });
   }
@@ -113,10 +127,13 @@ app.post('/api/sync', async (req, res) => {
 
       // Upsert profile
       await conn.execute(
-        `INSERT INTO profiles (id, name, position)
-         VALUES (?, ?, ?)
-         ON DUPLICATE KEY UPDATE name = VALUES(name), position = VALUES(position)`,
-        [profile.id, profile.name.trim().slice(0, 100), Number(profile.position) || 0]
+        `INSERT INTO profiles (id, user_id, name, position)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           user_id = VALUES(user_id),
+           name = VALUES(name),
+           position = VALUES(position)`,
+        [profile.id, userId, profile.name.trim().slice(0, 100), Number(profile.position) || 0]
       );
 
       const dials = Array.isArray(profile.dials) ? profile.dials : [];
@@ -161,8 +178,11 @@ app.post('/api/sync', async (req, res) => {
     if (incomingDialIds.length > 0) {
       const placeholders = incomingDialIds.map(() => '?').join(',');
       const [orphanDials] = await conn.execute(
-        `SELECT id, icon_path FROM dials WHERE id NOT IN (${placeholders})`,
-        incomingDialIds
+        `SELECT d.id, d.icon_path
+         FROM dials d
+         INNER JOIN profiles p ON p.id = d.profile_id
+         WHERE p.user_id = ? AND d.id NOT IN (${placeholders})`,
+        [userId, ...incomingDialIds]
       );
       for (const d of orphanDials) {
         if (d.icon_path) {
@@ -173,12 +193,21 @@ app.post('/api/sync', async (req, res) => {
         }
       }
       await conn.execute(
-        `DELETE FROM dials WHERE id NOT IN (${placeholders})`,
-        incomingDialIds
+        `DELETE d
+         FROM dials d
+         INNER JOIN profiles p ON p.id = d.profile_id
+         WHERE p.user_id = ? AND d.id NOT IN (${placeholders})`,
+        [userId, ...incomingDialIds]
       );
     } else {
       // No dials at all — delete everything
-      const [allDials] = await conn.execute('SELECT id, icon_path FROM dials');
+      const [allDials] = await conn.execute(
+        `SELECT d.id, d.icon_path
+         FROM dials d
+         INNER JOIN profiles p ON p.id = d.profile_id
+         WHERE p.user_id = ?`,
+        [userId]
+      );
       for (const d of allDials) {
         if (d.icon_path) {
           const fs   = require('fs');
@@ -187,18 +216,24 @@ app.post('/api/sync', async (req, res) => {
           fs.unlink(full, () => {});
         }
       }
-      await conn.execute('DELETE FROM dials');
+      await conn.execute(
+        `DELETE d
+         FROM dials d
+         INNER JOIN profiles p ON p.id = d.profile_id
+         WHERE p.user_id = ?`,
+        [userId]
+      );
     }
 
     // Delete profiles not in the incoming payload
     if (incomingProfileIds.length > 0) {
       const placeholders = incomingProfileIds.map(() => '?').join(',');
       await conn.execute(
-        `DELETE FROM profiles WHERE id NOT IN (${placeholders})`,
-        incomingProfileIds
+        `DELETE FROM profiles WHERE user_id = ? AND id NOT IN (${placeholders})`,
+        [userId, ...incomingProfileIds]
       );
     } else {
-      await conn.execute('DELETE FROM profiles');
+      await conn.execute('DELETE FROM profiles WHERE user_id = ?', [userId]);
     }
 
     await conn.commit();
@@ -236,9 +271,90 @@ async function seedInitialApiKey() {
   }
 }
 
+async function ensureMultiUserSchema() {
+  await db.execute(
+    `CREATE TABLE IF NOT EXISTS users (
+      id VARCHAR(36) NOT NULL,
+      username VARCHAR(100) NOT NULL,
+      password_hash VARCHAR(255) NOT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_users_username (username)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+  );
+
+  const [columns] = await db.execute(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'profiles' AND COLUMN_NAME = 'user_id'`
+  );
+
+  if (columns.length === 0) {
+    await db.execute('ALTER TABLE profiles ADD COLUMN user_id VARCHAR(36) NULL AFTER id');
+    await db.execute('CREATE INDEX idx_profiles_user ON profiles(user_id)');
+  }
+
+  const [fkRows] = await db.execute(
+    `SELECT CONSTRAINT_NAME
+     FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS
+     WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'profiles' AND CONSTRAINT_NAME = 'fk_profiles_user'`
+  );
+  if (fkRows.length === 0) {
+    try {
+      await db.execute(
+        `ALTER TABLE profiles
+         ADD CONSTRAINT fk_profiles_user
+         FOREIGN KEY (user_id) REFERENCES users(id)
+         ON DELETE CASCADE ON UPDATE CASCADE`
+      );
+    } catch (err) {
+      console.warn('Could not add fk_profiles_user yet:', err.message);
+    }
+  }
+}
+
+async function seedInitialUser() {
+  const username = (process.env.SYNC_DEFAULT_USERNAME || '').trim();
+  const password = process.env.SYNC_DEFAULT_PASSWORD || '';
+  if (!username || !password) return;
+
+  try {
+    const [rows] = await db.execute('SELECT id FROM users WHERE username = ? LIMIT 1', [username]);
+    if (rows.length > 0) return;
+    await db.execute(
+      'INSERT INTO users (id, username, password_hash, is_active) VALUES (?, ?, ?, 1)',
+      [uuidv4(), username, hashPassword(password)]
+    );
+    console.log(`Seeded default sync user: ${username}`);
+  } catch (err) {
+    console.warn('Could not seed default user (ensure users table exists):', err.message);
+  }
+}
+
+async function backfillLegacyProfilesToDefaultUser() {
+  const username = (process.env.SYNC_DEFAULT_USERNAME || '').trim();
+  if (!username) return;
+
+  const [rows] = await db.execute('SELECT id FROM users WHERE username = ? LIMIT 1', [username]);
+  if (rows.length === 0) return;
+
+  const userId = rows[0].id;
+  await db.execute('UPDATE profiles SET user_id = ? WHERE user_id IS NULL OR user_id = ""', [userId]);
+
+  try {
+    await db.execute('ALTER TABLE profiles MODIFY COLUMN user_id VARCHAR(36) NOT NULL');
+  } catch (err) {
+    console.warn('Could not enforce NOT NULL on profiles.user_id:', err.message);
+  }
+}
+
 app.listen(PORT, async () => {
   console.log(`Browser Dials server listening on port ${PORT}`);
+  await ensureMultiUserSchema();
   await seedInitialApiKey();
+  await seedInitialUser();
+  await backfillLegacyProfilesToDefaultUser();
 });
 
 module.exports = app; // for testing
