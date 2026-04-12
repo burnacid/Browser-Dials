@@ -37,6 +37,7 @@ const STORAGE_KEY_SYNC_LOGGED_IN = 'sync_logged_in';
 const STORAGE_KEY_SYNC_LOGGED_USER = 'sync_logged_user';
 const STORAGE_KEY_SEARCH_ENABLED = 'search_enabled';
 const STORAGE_KEY_SEARCH_ENGINE  = 'search_engine';
+const STORAGE_KEY_DIAL_ICON_SIZE = 'dial_icon_size';
 const STORAGE_KEY_SPLASH_DATA = 'splash_bg_data';
 const STORAGE_KEY_SPLASH_ON   = 'splash_bg_enabled';
 const STORAGE_KEY_SPLASH_PUBLIC_ON = 'splash_public_enabled';
@@ -216,8 +217,19 @@ function normalizeSplashOpacity(value) {
   return Math.round(n * 100) / 100;
 }
 
+function normalizeDialIconSize(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 52;
+  const clamped = Math.min(96, Math.max(32, n));
+  return Math.round(clamped / 2) * 2;
+}
+
 function updateSplashOpacityLabel(value) {
   document.getElementById('splash-opacity-value').textContent = normalizeSplashOpacity(value).toFixed(2);
+}
+
+function updateDialIconSizeLabel(value) {
+  document.getElementById('pref-dial-icon-size-value').textContent = `${normalizeDialIconSize(value)}px`;
 }
 
 async function buildSyncSettingsPayload() {
@@ -225,6 +237,7 @@ async function buildSyncSettingsPayload() {
     STORAGE_KEY_OPEN_IN_TAB,
     STORAGE_KEY_SEARCH_ENABLED,
     STORAGE_KEY_SEARCH_ENGINE,
+    STORAGE_KEY_DIAL_ICON_SIZE,
     STORAGE_KEY_SPLASH_ON,
     STORAGE_KEY_SPLASH_PUBLIC_ON,
     STORAGE_KEY_SPLASH_PROVIDER,
@@ -242,6 +255,7 @@ async function buildSyncSettingsPayload() {
       enabled: stored[STORAGE_KEY_SEARCH_ENABLED] ?? true,
       engine: stored[STORAGE_KEY_SEARCH_ENGINE] || 'google',
     },
+    dial_icon_size: normalizeDialIconSize(stored[STORAGE_KEY_DIAL_ICON_SIZE] ?? 52),
     splash: {
       enabled: stored[STORAGE_KEY_SPLASH_ON] ?? false,
       public_enabled: stored[STORAGE_KEY_SPLASH_PUBLIC_ON] ?? false,
@@ -645,6 +659,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     STORAGE_KEY_SYNC_LOGGED_USER,
     STORAGE_KEY_SEARCH_ENABLED,
     STORAGE_KEY_SEARCH_ENGINE,
+    STORAGE_KEY_DIAL_ICON_SIZE,
     STORAGE_KEY_SPLASH_DATA,
     STORAGE_KEY_SPLASH_ON,
     STORAGE_KEY_SPLASH_PUBLIC_ON,
@@ -668,6 +683,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   syncLoggedUser = stored[STORAGE_KEY_SYNC_LOGGED_USER] || '';
   document.getElementById('pref-search-enabled').checked = stored[STORAGE_KEY_SEARCH_ENABLED] ?? true;
   document.getElementById('pref-search-engine').value = stored[STORAGE_KEY_SEARCH_ENGINE] || 'google';
+  const dialIconSize = normalizeDialIconSize(stored[STORAGE_KEY_DIAL_ICON_SIZE] ?? 52);
+  document.getElementById('pref-dial-icon-size').value = String(dialIconSize);
+  updateDialIconSizeLabel(dialIconSize);
   document.getElementById('pref-splash-enabled').checked = stored[STORAGE_KEY_SPLASH_ON] ?? false;
   document.getElementById('pref-splash-public').checked = stored[STORAGE_KEY_SPLASH_PUBLIC_ON] ?? false;
   document.getElementById('splash-provider').value = normalizeSplashProvider(stored[STORAGE_KEY_SPLASH_PROVIDER]);
@@ -1179,6 +1197,18 @@ document.getElementById('pref-search-enabled').addEventListener('change', async 
 
 document.getElementById('pref-search-engine').addEventListener('change', async e => {
   await chrome.storage.local.set({ [STORAGE_KEY_SEARCH_ENGINE]: e.target.value });
+});
+
+document.getElementById('pref-dial-icon-size').addEventListener('input', e => {
+  updateDialIconSizeLabel(e.target.value);
+});
+
+document.getElementById('pref-dial-icon-size').addEventListener('change', async e => {
+  const value = normalizeDialIconSize(e.target.value);
+  document.getElementById('pref-dial-icon-size').value = String(value);
+  updateDialIconSizeLabel(value);
+  await chrome.storage.local.set({ [STORAGE_KEY_DIAL_ICON_SIZE]: value });
+  await syncSettingsToServerIfEnabled();
 });
 
 document.getElementById('pref-splash-enabled').addEventListener('change', async e => {
@@ -1773,6 +1803,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes[STORAGE_KEY_ACTIVE]) {
     activeProfileId = changes[STORAGE_KEY_ACTIVE].newValue || null;
     applyActiveProfileTheme();
+  }
+  if (changes[STORAGE_KEY_DIAL_ICON_SIZE]) {
+    const value = normalizeDialIconSize(changes[STORAGE_KEY_DIAL_ICON_SIZE].newValue ?? 52);
+    const slider = document.getElementById('pref-dial-icon-size');
+    if (slider && document.activeElement !== slider) {
+      slider.value = String(value);
+      updateDialIconSizeLabel(value);
+    }
   }
 });
 

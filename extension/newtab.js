@@ -34,6 +34,7 @@ const STORAGE_KEY_SYNC_PASSWORD = 'sync_password';
 const STORAGE_KEY_SYNC_LAST_PULL_AT = 'sync_last_pull_at';
 const STORAGE_KEY_SEARCH_ENABLED = 'search_enabled';
 const STORAGE_KEY_SEARCH_ENGINE  = 'search_engine';
+const STORAGE_KEY_DIAL_ICON_SIZE = 'dial_icon_size';
 const STORAGE_KEY_SPLASH_DATA = 'splash_bg_data';
 const STORAGE_KEY_SPLASH_ON   = 'splash_bg_enabled';
 const STORAGE_KEY_SPLASH_PUBLIC_ON = 'splash_public_enabled';
@@ -65,6 +66,7 @@ let syncPassword = '';
 let syncLastPullAt = 0;
 let searchEnabled = true;
 let searchEngine = 'google';
+let dialIconSize = 52;
 let splashData = '';
 let splashOn   = false;
 let splashPublicOn = false;
@@ -162,6 +164,13 @@ function normalizeSplashOpacity(value) {
   return Math.round(n * 100) / 100;
 }
 
+function normalizeDialIconSize(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 52;
+  const clamped = Math.min(96, Math.max(32, n));
+  return Math.round(clamped / 2) * 2;
+}
+
 function normalizeProfileProperties(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return { ...value };
@@ -230,6 +239,10 @@ function applyProfileTheme(profile) {
   }
 }
 
+function applyDialIconSize() {
+  document.documentElement.style.setProperty('--dial-icon-size', `${normalizeDialIconSize(dialIconSize)}px`);
+}
+
 function buildSyncSettingsPayload() {
   return {
     open_in_new_tab: openInNewTab,
@@ -237,6 +250,7 @@ function buildSyncSettingsPayload() {
       enabled: searchEnabled,
       engine: searchEngine,
     },
+    dial_icon_size: normalizeDialIconSize(dialIconSize),
     splash: {
       enabled: splashOn,
       public_enabled: splashPublicOn,
@@ -267,6 +281,9 @@ async function applyServerSettings(settingsObj) {
   if (search) {
     if (typeof search.enabled === 'boolean') patch[STORAGE_KEY_SEARCH_ENABLED] = search.enabled;
     if (typeof search.engine === 'string' && search.engine) patch[STORAGE_KEY_SEARCH_ENGINE] = search.engine;
+  }
+  if (settingsObj.dial_icon_size !== undefined) {
+    patch[STORAGE_KEY_DIAL_ICON_SIZE] = normalizeDialIconSize(settingsObj.dial_icon_size);
   }
   if (splash) {
     if (typeof splash.enabled === 'boolean') patch[STORAGE_KEY_SPLASH_ON] = splash.enabled;
@@ -331,6 +348,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     STORAGE_KEY_SYNC_LAST_PULL_AT,
     STORAGE_KEY_SEARCH_ENABLED,
     STORAGE_KEY_SEARCH_ENGINE,
+    STORAGE_KEY_DIAL_ICON_SIZE,
     STORAGE_KEY_SPLASH_DATA,
     STORAGE_KEY_SPLASH_ON,
     STORAGE_KEY_SPLASH_PUBLIC_ON,
@@ -355,6 +373,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   syncLastPullAt = Number(stored[STORAGE_KEY_SYNC_LAST_PULL_AT]) || 0;
   searchEnabled = stored[STORAGE_KEY_SEARCH_ENABLED] ?? true;
   searchEngine  = stored[STORAGE_KEY_SEARCH_ENGINE] || 'google';
+  dialIconSize = normalizeDialIconSize(stored[STORAGE_KEY_DIAL_ICON_SIZE] ?? 52);
   splashData    = stored[STORAGE_KEY_SPLASH_DATA] || '';
   splashOn      = stored[STORAGE_KEY_SPLASH_ON] ?? false;
   splashPublicOn = stored[STORAGE_KEY_SPLASH_PUBLIC_ON] ?? false;
@@ -376,6 +395,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     && (!syncLastPullAt || (Date.now() - syncLastPullAt) >= SYNC_PULL_INTERVAL_MS);
 
   renderAll();
+  applyDialIconSize();
   void applySplashBackground();
   updatePublicSplashRefreshButton();
   applySearchUi();
@@ -447,6 +467,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (changes[STORAGE_KEY_SEARCH_ENGINE]) {
     searchEngine = changes[STORAGE_KEY_SEARCH_ENGINE].newValue || 'google';
+  }
+  if (changes[STORAGE_KEY_DIAL_ICON_SIZE]) {
+    dialIconSize = normalizeDialIconSize(changes[STORAGE_KEY_DIAL_ICON_SIZE].newValue ?? 52);
+    applyDialIconSize();
   }
   if (changes[STORAGE_KEY_SPLASH_DATA]) {
     splashData = changes[STORAGE_KEY_SPLASH_DATA].newValue || '';

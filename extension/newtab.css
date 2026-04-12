@@ -12,6 +12,7 @@
   --shadow:      0 10px 30px rgba(15, 23, 42, .12);
   --radius:      16px;
   --dial-size:   156px;
+  --dial-icon-size: 52px;
   --header-h:    52px;
   --transition:  160ms ease;
   --splash-opacity: 1;
@@ -471,8 +472,8 @@ body.splash-enabled::after {
 }
 
 .dial-card__icon {
-  width: 52px;
-  height: 52px;
+  width: var(--dial-icon-size);
+  height: var(--dial-icon-size);
   border-radius: 10px;
   object-fit: contain;
   flex-shrink: 0;
@@ -485,21 +486,21 @@ body.splash-enabled::after {
 }
 
 .dial-card__avatar {
-  width: 52px;
-  height: 52px;
+  width: var(--dial-icon-size);
+  height: var(--dial-icon-size);
   border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
+  font-size: calc(var(--dial-icon-size) * 0.42);
   font-weight: 700;
   color: #fff;
   flex-shrink: 0;
 }
 
 .dial-card__folder-grid {
-  width: 52px;
-  height: 52px;
+  width: var(--dial-icon-size);
+  height: var(--dial-icon-size);
   border-radius: 10px;
   display: grid;
   gap: 2px;
@@ -519,8 +520,9 @@ body.splash-enabled::after {
 }
 
 .dial-card__folder-cell {
-  width: 100%;
-  height: 100%;
+  aspect-ratio: 1;
+  min-width: 0;
+  min-height: 0;
   border-radius: 4px;
   overflow: hidden;
   background: color-mix(in srgb, var(--surface) 90%, transparent);
@@ -532,7 +534,7 @@ body.splash-enabled::after {
 .dial-card__folder-cell-img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   display: block;
 }
 
@@ -547,7 +549,7 @@ body.splash-enabled::after {
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-size: 8px;
+  font-size: calc(var(--dial-icon-size) * 0.16);
   font-weight: 700;
   line-height: 1;
 }
