@@ -143,6 +143,31 @@ const PROFILE_THEME_DARK = {
   accentDark: '#0f766e',
 };
 
+const SEARCH_ENGINE_META = Object.freeze({
+  google: {
+    label: 'Google',
+    logoUrl: 'https://www.google.com/favicon.ico',
+    buildUrl: q => `https://www.google.com/search?q=${q}`,
+  },
+  bing: {
+    label: 'Bing',
+    logoUrl: 'https://www.bing.com/favicon.ico',
+    buildUrl: q => `https://www.bing.com/search?q=${q}`,
+  },
+  duckduckgo: {
+    label: 'DuckDuckGo',
+    logoUrl: 'https://duckduckgo.com/favicon.ico',
+    buildUrl: q => `https://duckduckgo.com/?q=${q}`,
+  },
+  brave: {
+    label: 'Brave Search',
+    logoUrl: 'https://search.brave.com/favicon.ico',
+    buildUrl: q => `https://search.brave.com/search?q=${q}`,
+  },
+});
+
+const SEARCH_ENGINE_KEYS = Object.freeze(Object.keys(SEARCH_ENGINE_META));
+
 function normalizeGridColumns(value) {
   if (value === null || value === undefined || value === '') return null;
   const n = Number(value);
@@ -479,6 +504,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (changes[STORAGE_KEY_SEARCH_ENGINE]) {
     searchEngine = changes[STORAGE_KEY_SEARCH_ENGINE].newValue || 'google';
+    applySearchUi();
   }
   if (changes[STORAGE_KEY_DIAL_ICON_SIZE]) {
     dialIconSize = normalizeDialIconSize(changes[STORAGE_KEY_DIAL_ICON_SIZE].newValue ?? 52);
@@ -714,11 +740,6 @@ function buildDialCard(dial, allDials) {
   card.appendChild(title);
 
   if (folder) {
-    const meta = document.createElement('span');
-    meta.className = 'dial-card__meta';
-    const count = Array.isArray(dial.items) ? dial.items.length : 0;
-    meta.textContent = `${count} item${count === 1 ? '' : 's'}`;
-    card.appendChild(meta);
   }
 
   // Right-click actions menu
@@ -2394,20 +2415,113 @@ function applySearchUi() {
   const shell = document.getElementById('search-shell');
   if (!shell) return;
   shell.style.display = searchEnabled ? 'block' : 'none';
+
+  const meta = SEARCH_ENGINE_META[searchEngine] || SEARCH_ENGINE_META.google;
+  const logoWrap = document.getElementById('search-engine-logo-wrap');
+  const logo = document.getElementById('search-engine-logo');
+  const fallback = document.getElementById('search-engine-logo-fallback');
+
+  if (!(logoWrap instanceof HTMLElement) || !(logo instanceof HTMLImageElement) || !(fallback instanceof HTMLElement)) {
+    return;
+  }
+
+  const fallbackText = (meta.label || 'Search').slice(0, 1);
+  fallback.textContent = fallbackText;
+  logoWrap.classList.remove('has-fallback');
+  logo.src = meta.logoUrl;
+  logo.title = `${meta.label} logo`;
+  logo.onerror = () => {
+    logoWrap.classList.add('has-fallback');
+  };
+  logo.onload = () => {
+    logoWrap.classList.remove('has-fallback');
+  };
+
+  const pickerButton = document.getElementById('search-engine-button');
+  if (pickerButton instanceof HTMLButtonElement) {
+    pickerButton.title = `Search engine: ${meta.label}`;
+  }
+
+  renderSearchEngineMenu();
+}
+
+function renderSearchEngineMenu() {
+  const menu = document.getElementById('search-engine-menu');
+  if (!(menu instanceof HTMLElement)) return;
+
+  menu.innerHTML = '';
+  for (const key of SEARCH_ENGINE_KEYS) {
+    const meta = SEARCH_ENGINE_META[key];
+    const option = document.createElement('button');
+    option.type = 'button';
+    option.className = `search-engine-option${searchEngine === key ? ' is-selected' : ''}`;
+    option.setAttribute('role', 'option');
+    option.setAttribute('aria-selected', searchEngine === key ? 'true' : 'false');
+
+    const logo = document.createElement('img');
+    logo.className = 'search-engine-option__logo';
+    logo.src = meta.logoUrl;
+    logo.alt = '';
+    logo.referrerPolicy = 'no-referrer';
+    logo.addEventListener('error', () => option.classList.add('has-fallback'));
+    logo.addEventListener('load', () => option.classList.remove('has-fallback'));
+
+    const fallback = document.createElement('span');
+    fallback.className = 'search-engine-option__fallback';
+    fallback.textContent = (meta.label || 'S').slice(0, 1);
+
+    const label = document.createElement('span');
+    label.textContent = meta.label;
+
+    option.appendChild(logo);
+    option.appendChild(fallback);
+    option.appendChild(label);
+    option.addEventListener('click', () => {
+      void setSearchEngine(key);
+    });
+    menu.appendChild(option);
+  }
+}
+
+async function setSearchEngine(engineKey) {
+  if (!SEARCH_ENGINE_META[engineKey]) return;
+  searchEngine = engineKey;
+  await chrome.storage.local.set({ [STORAGE_KEY_SEARCH_ENGINE]: engineKey });
+  applySearchUi();
+  closeSearchEngineMenu();
+}
+
+function openSearchEngineMenu() {
+  const menu = document.getElementById('search-engine-menu');
+  const button = document.getElementById('search-engine-button');
+  if (!(menu instanceof HTMLElement) || !(button instanceof HTMLButtonElement)) return;
+  renderSearchEngineMenu();
+  menu.classList.remove('hidden');
+  button.setAttribute('aria-expanded', 'true');
+}
+
+function closeSearchEngineMenu() {
+  const menu = document.getElementById('search-engine-menu');
+  const button = document.getElementById('search-engine-button');
+  if (!(menu instanceof HTMLElement) || !(button instanceof HTMLButtonElement)) return;
+  menu.classList.add('hidden');
+  button.setAttribute('aria-expanded', 'false');
+}
+
+function toggleSearchEngineMenu() {
+  const menu = document.getElementById('search-engine-menu');
+  if (!(menu instanceof HTMLElement)) return;
+  if (menu.classList.contains('hidden')) {
+    openSearchEngineMenu();
+    return;
+  }
+  closeSearchEngineMenu();
 }
 
 function getSearchTargetUrl(query) {
   const q = encodeURIComponent(query.trim());
-  if (searchEngine === 'bing') {
-    return `https://www.bing.com/search?q=${q}`;
-  }
-  if (searchEngine === 'duckduckgo') {
-    return `https://duckduckgo.com/?q=${q}`;
-  }
-  if (searchEngine === 'brave') {
-    return `https://search.brave.com/search?q=${q}`;
-  }
-  return `https://www.google.com/search?q=${q}`;
+  const meta = SEARCH_ENGINE_META[searchEngine] || SEARCH_ENGINE_META.google;
+  return meta.buildUrl(q);
 }
 
 function hostname(url) {
@@ -2513,6 +2627,24 @@ document.getElementById('search-form').addEventListener('submit', e => {
     window.open(url, '_blank', 'noopener,noreferrer');
   } else {
     window.location.href = url;
+  }
+});
+
+document.getElementById('search-engine-button').addEventListener('click', e => {
+  e.stopPropagation();
+  toggleSearchEngineMenu();
+});
+
+document.addEventListener('click', e => {
+  const picker = document.getElementById('search-engine-picker');
+  if (!(picker instanceof HTMLElement)) return;
+  if (picker.contains(e.target)) return;
+  closeSearchEngineMenu();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    closeSearchEngineMenu();
   }
 });
 

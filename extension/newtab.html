@@ -19,6 +19,16 @@
 
   <section id="search-shell" aria-label="Search">
     <form id="search-form" autocomplete="off">
+      <div id="search-engine-picker">
+        <button id="search-engine-button" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Select search engine">
+          <span id="search-engine-logo-wrap" aria-hidden="true">
+            <img id="search-engine-logo" alt="" referrerpolicy="no-referrer" />
+            <span id="search-engine-logo-fallback"></span>
+          </span>
+          <span id="search-engine-caret" aria-hidden="true">▾</span>
+        </button>
+        <div id="search-engine-menu" class="hidden" role="listbox" aria-label="Search engine"></div>
+      </div>
       <input id="search-input" type="search" placeholder="Search the web" maxlength="200" />
       <button id="search-submit" type="submit">Search</button>
     </form>
