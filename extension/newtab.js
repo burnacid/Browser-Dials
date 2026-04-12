@@ -82,6 +82,7 @@ let splashFetchPromise = null;
 let draggedDialId = null;
 let dragHoverDialId = null;
 let dragHoverMode = null;
+let dragHoverProfileId = null;
 let dragDidMove = false;
 let folderDraggedItemId = null;
 let folderDragHoverItemId = null;
@@ -609,6 +610,9 @@ function renderProfileTabs() {
 
     btn.appendChild(nameSpan);
     btn.addEventListener('click', () => switchProfile(profile.id));
+    btn.addEventListener('dragover', e => handleProfileTabDragOver(e, profile.id));
+    btn.addEventListener('dragleave', e => handleProfileTabDragLeave(e, profile.id));
+    btn.addEventListener('drop', e => handleProfileTabDrop(e, profile.id));
     nav.appendChild(btn);
   }
   renderCache.profileTabsKey = key;
@@ -1022,11 +1026,81 @@ function clearDialDragState() {
   draggedDialId = null;
   dragHoverDialId = null;
   dragHoverMode = null;
+  dragHoverProfileId = null;
   const grid = document.getElementById('dial-grid');
   grid?.classList.remove('dial-grid--dragging', 'dial-grid--append');
   document.querySelectorAll('.dial-card--dragging, .dial-card--drop-before, .dial-card--drop-after, .dial-card--drop-merge').forEach(card => {
     card.classList.remove('dial-card--dragging', 'dial-card--drop-before', 'dial-card--drop-after', 'dial-card--drop-merge');
   });
+  document.querySelectorAll('.profile-tab--drop-target').forEach(tab => tab.classList.remove('profile-tab--drop-target'));
+}
+
+function applyProfileTabDropState() {
+  document.querySelectorAll('.profile-tab').forEach(tab => {
+    if (!(tab instanceof HTMLElement)) return;
+    const isTarget = !!dragHoverProfileId && tab.dataset.profileId === dragHoverProfileId;
+    tab.classList.toggle('profile-tab--drop-target', isTarget);
+  });
+}
+
+function handleProfileTabDragOver(event, targetProfileId) {
+  if (!draggedDialId) return;
+  event.preventDefault();
+  event.stopPropagation();
+  dragHoverProfileId = targetProfileId;
+  applyProfileTabDropState();
+  event.dataTransfer.dropEffect = 'move';
+}
+
+function handleProfileTabDragLeave(event, targetProfileId) {
+  const related = event.relatedTarget;
+  if (related instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(related)) {
+    return;
+  }
+  if (dragHoverProfileId === targetProfileId) {
+    dragHoverProfileId = null;
+    applyProfileTabDropState();
+  }
+}
+
+function handleProfileTabDrop(event, targetProfileId) {
+  if (!draggedDialId) return;
+  event.preventDefault();
+  event.stopPropagation();
+  void moveDialToProfile(draggedDialId, targetProfileId)
+    .finally(() => {
+      clearDialDragState();
+    });
+}
+
+async function moveDialToProfile(sourceDialId, targetProfileId) {
+  const targetProfile = state.profiles.find(p => p.id === targetProfileId);
+  const sourceProfile = findProfileByDialId(sourceDialId);
+  if (!targetProfile || !sourceProfile) return;
+
+  const dialIndex = sourceProfile.dials.findIndex(d => d.id === sourceDialId);
+  if (dialIndex < 0) return;
+
+  if (sourceProfile.id === targetProfile.id) {
+    activeProfileId = targetProfile.id;
+    await chrome.storage.local.set({ [STORAGE_KEY_ACTIVE]: activeProfileId });
+    renderAll();
+    return;
+  }
+
+  const [dial] = sourceProfile.dials.splice(dialIndex, 1);
+  normalizeDialPositions(sourceProfile);
+
+  dial.profile_id = targetProfile.id;
+  dial.position = targetProfile.dials.length;
+  targetProfile.dials.push(dial);
+  normalizeDialPositions(targetProfile);
+
+  activeProfileId = targetProfile.id;
+  dragDidMove = true;
+  await saveLocal();
+  renderAll();
+  showToast(`Moved to ${targetProfile.name}`, 'ok');
 }
 
 async function appendDialToEnd(dialId) {
@@ -1415,6 +1489,7 @@ function openEditFolderItemModal(folder, item) {
   document.getElementById('modal-icon-bg-enabled').checked = !!item.icon_bg;
   document.getElementById('modal-icon-bg-color').value     = item.icon_bg || '#ffffff';
   document.getElementById('modal-folder-row').style.display = 'none';
+  document.getElementById('modal-profile-group').style.display = 'none';
   updateIconBgColorUi();
   updateDialModalTypeUi();
 
@@ -1708,6 +1783,8 @@ function openAddModal(folderId = null) {
   document.getElementById('modal-icon-remove').classList.add('hidden');
   // Hide the "Create as folder" row when adding an item inside a folder
   document.getElementById('modal-folder-row').style.display = folderId ? 'none' : '';
+  document.getElementById('modal-profile-group').style.display = folderId ? 'none' : '';
+  populateModalProfileSelect(activeProfileId);
   updateIconBgColorUi();
   updateDialModalTypeUi();
   if (folderId) closeFolderModal();
@@ -1735,6 +1812,9 @@ function openEditModal(dial) {
   document.getElementById('modal-icon-input').value        = '';
   document.getElementById('modal-icon-bg-enabled').checked = !!dial.icon_bg;
   document.getElementById('modal-icon-bg-color').value = dial.icon_bg || '#ffffff';
+  document.getElementById('modal-profile-group').style.display = '';
+  const sourceProfile = findProfileByDialId(dial.id);
+  populateModalProfileSelect(sourceProfile?.id || activeProfileId);
   updateIconBgColorUi();
   updateDialModalTypeUi();
 
@@ -1777,6 +1857,7 @@ function closeModal() {
   pendingIconData = null;
   editingFolderItemId = null;
   document.getElementById('modal-folder-row').style.display = '';
+  document.getElementById('modal-profile-group').style.display = '';
   const wasAddingToFolder = addingToFolderId;
   addingToFolderId = null;
   if (wasAddingToFolder) openFolderModal(wasAddingToFolder);
@@ -1785,6 +1866,43 @@ function closeModal() {
 function updateDialModalTypeUi() {
   const folderMode = document.getElementById('modal-is-folder').checked;
   document.getElementById('modal-url-group').style.display = folderMode ? 'none' : 'block';
+}
+
+function normalizeDialPositions(profile) {
+  if (!profile || !Array.isArray(profile.dials)) return;
+  profile.dials = profile.dials
+    .sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0))
+    .map((dial, index) => ({ ...dial, position: index }));
+}
+
+function findProfileByDialId(dialId) {
+  for (const profile of state.profiles) {
+    if (profile.dials?.some(dial => dial.id === dialId)) {
+      return profile;
+    }
+  }
+  return null;
+}
+
+function populateModalProfileSelect(selectedProfileId = activeProfileId) {
+  const select = document.getElementById('modal-profile-select');
+  if (!(select instanceof HTMLSelectElement)) return;
+
+  const sortedProfiles = [...state.profiles].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+  const fallbackProfileId = sortedProfiles[0]?.id || '';
+  const targetProfileId = selectedProfileId || fallbackProfileId;
+
+  select.innerHTML = '';
+  for (const profile of sortedProfiles) {
+    const option = document.createElement('option');
+    option.value = profile.id;
+    option.textContent = profile.name || 'Profile';
+    select.appendChild(option);
+  }
+
+  if (targetProfileId) {
+    select.value = targetProfileId;
+  }
 }
 
 async function saveDial() {
@@ -1871,13 +1989,15 @@ async function saveDial() {
   }
   urlEl.setCustomValidity('');
 
-  const profile = state.profiles.find(p => p.id === activeProfileId);
-  if (!profile) return;
+  const selectedProfileId = document.getElementById('modal-profile-select').value || activeProfileId;
+  const targetProfile = state.profiles.find(p => p.id === selectedProfileId);
+  if (!targetProfile) return;
 
   if (editingDialId) {
     // Edit existing
-    const dial = profile.dials.find(d => d.id === editingDialId);
-    if (!dial) return;
+    const sourceProfile = findProfileByDialId(editingDialId);
+    const dial = sourceProfile?.dials?.find(d => d.id === editingDialId);
+    if (!sourceProfile || !dial) return;
     dial.type = folderMode ? 'folder' : 'dial';
     dial.title = title;
     dial.icon_bg = iconBgColor;
@@ -1888,22 +2008,32 @@ async function saveDial() {
       dial.url = cleanUrl;
       delete dial.items;
     }
+
+    if (sourceProfile.id !== targetProfile.id) {
+      sourceProfile.dials = sourceProfile.dials.filter(d => d.id !== dial.id);
+      normalizeDialPositions(sourceProfile);
+      dial.profile_id = targetProfile.id;
+      dial.position = targetProfile.dials.length;
+      targetProfile.dials.push(dial);
+      normalizeDialPositions(targetProfile);
+    }
   } else {
     // Add new
     const newDial = {
       id:        uuid(),
-      profile_id: profile.id,
+      profile_id: targetProfile.id,
       type:      folderMode ? 'folder' : 'dial',
       title,
       url:       folderMode ? '' : cleanUrl,
-      position:  profile.dials.length,
+      position:  targetProfile.dials.length,
       icon_data: null,
       icon_bg: iconBgColor,
     };
     if (folderMode) {
       newDial.items = [];
     }
-    profile.dials.push(newDial);
+    targetProfile.dials.push(newDial);
+    normalizeDialPositions(targetProfile);
     editingDialId = newDial.id;
   }
 

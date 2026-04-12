@@ -119,6 +119,17 @@ body.splash-enabled::after {
   animation: profile-tab-pop 180ms cubic-bezier(.22, 1, .36, 1);
 }
 
+.profile-tab.profile-tab--drop-target {
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--accent) 30%);
+  color: var(--text);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.profile-tab.active.profile-tab--drop-target {
+  color: #fff;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #ffffff 55%, transparent);
+}
+
 @keyframes profile-tab-pop {
   from {
     transform: translateY(2px) scale(.98);
@@ -1013,7 +1024,8 @@ body.splash-enabled::after {
 }
 
 .modal input[type="text"],
-.modal input[type="url"] {
+.modal input[type="url"],
+.modal select {
   width: 100%;
   padding: 9px 12px;
   background: var(--bg);
@@ -1025,7 +1037,8 @@ body.splash-enabled::after {
   transition: border-color var(--transition);
 }
 .modal input[type="text"]:focus,
-.modal input[type="url"]:focus {
+.modal input[type="url"]:focus,
+.modal select:focus {
   border-color: var(--accent);
 }
 
