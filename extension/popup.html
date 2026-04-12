@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Add Current Tab</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <main class="popup">
+    <header class="popup__header">
+      <img src="icons/icon32.png" alt="" class="popup__logo" />
+      <div>
+        <h1>Add Current Tab</h1>
+        <p>Save this page as a dial</p>
+      </div>
+    </header>
+
+    <form id="add-tab-form" class="popup__form">
+      <label for="dial-title">Title</label>
+      <input id="dial-title" type="text" maxlength="200" autocomplete="off" required />
+
+      <label for="dial-url">URL</label>
+      <input id="dial-url" type="url" maxlength="2048" autocomplete="off" required />
+
+      <label for="profile-select">Profile</label>
+      <select id="profile-select"></select>
+
+      <div class="popup__actions">
+        <button id="btn-settings" type="button" class="btn-secondary">Settings</button>
+        <button id="btn-add" type="submit" class="btn-primary">Add Dial</button>
+      </div>
+
+      <p id="status" aria-live="polite"></p>
+    </form>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,137 @@
+:root {
+  --bg: #eef2ff;
+  --surface: #ffffff;
+  --border: #c7d2fe;
+  --text: #111827;
+  --text-muted: #64748b;
+  --accent: #0f766e;
+  --accent-dark: #115e59;
+  --danger: #dc2626;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1020;
+    --surface: #151a2f;
+    --border: #334155;
+    --text: #f9fafb;
+    --text-muted: #9ca3af;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  width: 360px;
+  font-family: "Segoe UI Variable", "Aptos", "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.popup {
+  padding: 14px;
+}
+
+.popup__header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.popup__logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.popup__header h1 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.popup__header p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.popup__form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+input,
+select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.popup__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+button {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--accent-dark);
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+#status {
+  margin: 2px 0 0;
+  min-height: 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+#status.ok {
+  color: #16a34a;
+}
+
+#status.err {
+  color: var(--danger);
+}
