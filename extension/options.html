@@ -57,7 +57,27 @@
 
         <div class="field-row" id="sync-login-state-row">
           <span id="sync-login-state" aria-live="polite"></span>
+          <button id="btn-sync-password-toggle" class="btn-secondary" type="button">Change Password</button>
           <button id="btn-sync-logout" class="btn-secondary" type="button">Log out</button>
+        </div>
+
+        <div id="sync-password-change-section">
+          <div class="field">
+            <label for="sync-current-password">Current password</label>
+            <input id="sync-current-password" type="password" placeholder="Current password" maxlength="200" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="sync-new-password">New password</label>
+            <input id="sync-new-password" type="password" placeholder="New password (8+ chars)" maxlength="200" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="sync-confirm-password">Confirm new password</label>
+            <input id="sync-confirm-password" type="password" placeholder="Confirm new password" maxlength="200" autocomplete="off" />
+          </div>
+          <div class="field-row">
+            <button id="btn-sync-change-password" class="btn-secondary" type="button">Change Password</button>
+            <button id="btn-sync-password-cancel" class="btn-secondary" type="button">Cancel</button>
+          </div>
         </div>
 
         <div id="sync-login-section">

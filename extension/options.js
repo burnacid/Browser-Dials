@@ -96,6 +96,7 @@ let state = { profiles: [] };
 let syncLoggedIn = false;
 let syncLoggedUser = '';
 let activeProfileId = null;
+let syncPasswordChangeExpanded = false;
 const expandedThemeEditorProfileIds = new Set();
 
 function normalizeGridColumns(value) {
@@ -1197,6 +1198,113 @@ async function registerAccount() {
   }
 }
 
+async function changeSyncPassword() {
+  const changeBtn = document.getElementById('btn-sync-change-password');
+  const cancelBtn = document.getElementById('btn-sync-password-cancel');
+
+  const storedSyncConfig = await getSyncConfig();
+  const draftSyncConfig = getDraftSyncConfigFromInputs();
+  const syncConfig = {
+    mode: storedSyncConfig.mode || draftSyncConfig.mode,
+    serverUrl: storedSyncConfig.serverUrl || draftSyncConfig.serverUrl,
+    apiKey: storedSyncConfig.apiKey || draftSyncConfig.apiKey,
+    username: storedSyncConfig.username || draftSyncConfig.username || syncLoggedUser,
+    password: storedSyncConfig.password || draftSyncConfig.password,
+  };
+
+  if (syncConfig.mode !== 'server' || !syncConfig.serverUrl || !syncConfig.apiKey || !syncConfig.username) {
+    setSyncStatus('Save sync server URL, API key, and username before changing password.', 'err');
+    return;
+  }
+
+  const currentPassword = document.getElementById('sync-current-password').value;
+  const newPassword = document.getElementById('sync-new-password').value;
+  const confirmPassword = document.getElementById('sync-confirm-password').value;
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    setSyncStatus('Fill in current, new, and confirm password.', 'err');
+    return;
+  }
+  if (newPassword.length < 8 || newPassword.length > 200) {
+    setSyncStatus('New password must be 8-200 characters.', 'err');
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    setSyncStatus('New password and confirmation do not match.', 'err');
+    return;
+  }
+
+  setSyncStatus('Changing password...', 'ok');
+  const originalChangeText = changeBtn.textContent;
+  changeBtn.textContent = 'Changing...';
+  changeBtn.classList.add('btn-syncing');
+  changeBtn.disabled = true;
+  cancelBtn.disabled = true;
+
+  try {
+    const resp = await fetch(`${syncConfig.serverUrl}/api/auth/change-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${syncConfig.apiKey}`,
+        'X-Sync-User': syncConfig.username,
+      },
+      body: JSON.stringify({
+        username: syncConfig.username,
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    });
+
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      if (resp.status === 403 && body.error === 'Invalid user credentials') {
+        setSyncStatus('Current password is incorrect.', 'err');
+        return;
+      }
+      if (resp.status === 403 && body.error === 'current password is incorrect') {
+        setSyncStatus('Current password is incorrect.', 'err');
+        return;
+      }
+      setSyncStatus(body.error || `Password change failed (HTTP ${resp.status}).`, 'err');
+      return;
+    }
+
+    document.getElementById('sync-password').value = newPassword;
+    document.getElementById('sync-current-password').value = '';
+    document.getElementById('sync-new-password').value = '';
+    document.getElementById('sync-confirm-password').value = '';
+
+    await chrome.storage.local.set({
+      [STORAGE_KEY_SYNC_PASSWORD]: newPassword,
+    });
+
+    setSyncStatus('Password changed successfully.', 'ok');
+    setSyncPasswordChangeExpanded(false, true);
+  } catch (err) {
+    setSyncStatus(`Password change failed: ${err.message}`, 'err');
+  } finally {
+    changeBtn.classList.remove('btn-syncing');
+    changeBtn.textContent = originalChangeText;
+    updateSyncControlState();
+  }
+}
+
+function setSyncPasswordChangeExpanded(expanded, clearFields = false) {
+  syncPasswordChangeExpanded = !!expanded;
+  const section = document.getElementById('sync-password-change-section');
+  const toggleBtn = document.getElementById('btn-sync-password-toggle');
+
+  section.style.display = syncPasswordChangeExpanded ? 'block' : 'none';
+  toggleBtn.textContent = syncPasswordChangeExpanded ? 'Hide Password Form' : 'Change Password';
+
+  if (clearFields) {
+    document.getElementById('sync-current-password').value = '';
+    document.getElementById('sync-new-password').value = '';
+    document.getElementById('sync-confirm-password').value = '';
+  }
+}
+
 // ─── Backup / restore ─────────────────────────────────────────────────────────
 function exportJson() {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
@@ -1370,6 +1478,7 @@ document.getElementById('sync-auth-view').addEventListener('change', async e => 
 document.getElementById('btn-sync-logout').addEventListener('click', async () => {
   syncLoggedIn = false;
   syncLoggedUser = '';
+  setSyncPasswordChangeExpanded(false, true);
   await chrome.storage.local.set({
     [STORAGE_KEY_SYNC_LOGGED_IN]: false,
     [STORAGE_KEY_SYNC_LOGGED_USER]: '',
@@ -1498,6 +1607,7 @@ function updateSyncControlState() {
   const authViewRow = document.getElementById('sync-auth-view-row');
   const loginStateRow = document.getElementById('sync-login-state-row');
   const loginActionsRow = document.getElementById('sync-login-actions-row');
+  const changePasswordSection = document.getElementById('sync-password-change-section');
   const forceRow = document.getElementById('sync-force-row');
   serverFields.style.display = disabled ? 'none' : 'block';
   document.getElementById('sync-server-url').disabled = disabled;
@@ -1507,6 +1617,9 @@ function updateSyncControlState() {
   document.getElementById('btn-sync-test').disabled = disabled;
   document.getElementById('btn-sync-save').disabled = disabled;
   document.getElementById('btn-sync-force').disabled = false;
+  document.getElementById('btn-sync-password-toggle').disabled = disabled || !syncLoggedIn;
+  document.getElementById('btn-sync-change-password').disabled = disabled || !syncLoggedIn;
+  document.getElementById('btn-sync-password-cancel').disabled = disabled || !syncLoggedIn;
   document.getElementById('sync-auth-view').disabled = disabled;
   document.getElementById('btn-sync-logout').disabled = disabled || !syncLoggedIn;
 
@@ -1516,6 +1629,7 @@ function updateSyncControlState() {
     authViewRow.style.display = 'none';
     loginStateRow.style.display = 'none';
     loginActionsRow.style.display = 'none';
+    setSyncPasswordChangeExpanded(false, true);
     forceRow.style.display = 'flex';
     loginSection.style.display = 'none';
     registerSection.style.display = 'none';
@@ -1531,6 +1645,7 @@ function updateSyncControlState() {
     loginStateRow.style.display = 'flex';
     loginSection.style.display = 'none';
     loginActionsRow.style.display = 'none';
+    setSyncPasswordChangeExpanded(syncPasswordChangeExpanded);
     registerSection.style.display = 'none';
     return;
   }
@@ -1540,6 +1655,7 @@ function updateSyncControlState() {
   authViewRow.style.display = 'flex';
   loginStateRow.style.display = 'none';
   loginActionsRow.style.display = 'flex';
+  setSyncPasswordChangeExpanded(false, true);
 
   loginSection.style.display = authView === 'login' ? 'block' : 'none';
   registerSection.style.display = (!syncLoggedIn && authView === 'register') ? 'block' : 'none';
@@ -1956,6 +2072,18 @@ document.getElementById('btn-sync-force').addEventListener('click', () => {
 
 document.getElementById('btn-register-account').addEventListener('click', () => {
   registerAccount().catch(err => setSyncStatus(err.message, 'err'));
+});
+
+document.getElementById('btn-sync-change-password').addEventListener('click', () => {
+  changeSyncPassword().catch(err => setSyncStatus(err.message, 'err'));
+});
+
+document.getElementById('btn-sync-password-toggle').addEventListener('click', () => {
+  setSyncPasswordChangeExpanded(!syncPasswordChangeExpanded);
+});
+
+document.getElementById('btn-sync-password-cancel').addEventListener('click', () => {
+  setSyncPasswordChangeExpanded(false, true);
 });
 
 document.getElementById('new-profile-name').addEventListener('keydown', e => {

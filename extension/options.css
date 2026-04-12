@@ -220,6 +220,14 @@ input[type="password"]:focus {
   margin-top: 8px;
 }
 
+#sync-password-change-section {
+  display: none;
+}
+
+#sync-password-change-section > * + * {
+  margin-top: 8px;
+}
+
 #sync-login-state-row {
   justify-content: space-between;
 }
