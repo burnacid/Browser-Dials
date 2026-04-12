@@ -1816,6 +1816,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 // ─── Event wiring ─────────────────────────────────────────────────────────────
 document.getElementById('btn-add-profile').addEventListener('click', addProfile);
+document.getElementById('btn-open-help').addEventListener('click', () => {
+  window.open(chrome.runtime.getURL('help.html'), '_blank', 'noopener,noreferrer');
+});
 document.getElementById('btn-back-newtab').addEventListener('click', () => {
   window.location.href = chrome.runtime.getURL('newtab.html');
 });

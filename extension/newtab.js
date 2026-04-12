@@ -2606,6 +2606,9 @@ document.getElementById('btn-edit-profile').addEventListener('click', () => {
 });
 document.getElementById('btn-settings').addEventListener('click', toggleSettingsDrawer);
 document.getElementById('btn-settings-close').addEventListener('click', closeSettingsDrawer);
+document.getElementById('btn-settings-help').addEventListener('click', () => {
+  window.open(chrome.runtime.getURL('help.html'), '_blank', 'noopener,noreferrer');
+});
 document.getElementById('btn-settings-full').addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });

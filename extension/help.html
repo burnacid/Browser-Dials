@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Browser Dials - Help</title>
+  <link rel="stylesheet" href="help.css" />
+</head>
+<body>
+  <div class="bg-orb bg-orb--a" aria-hidden="true"></div>
+  <div class="bg-orb bg-orb--b" aria-hidden="true"></div>
+
+  <header class="hero">
+    <div class="hero__brand">
+      <img src="icons/icon48.png" alt="" class="hero__logo" />
+      <div>
+        <h1>Browser Dials Help</h1>
+        <p>Manual for setup, sync, and everyday use</p>
+      </div>
+    </div>
+    <div class="hero__actions">
+      <a class="btn" href="options.html">Open Settings</a>
+      <a class="btn btn--ghost" href="newtab.html">Back to New Tab</a>
+    </div>
+  </header>
+
+  <main class="layout">
+    <nav class="toc" aria-label="Table of contents">
+      <h2>On this page</h2>
+      <a href="#quick-start">Quick Start</a>
+      <a href="#sync-server">Self-Hosted Sync Server</a>
+      <a href="#connect-sync">Connect Extension to Sync</a>
+      <a href="#profiles">Profiles</a>
+      <a href="#dials">Dials and Folders</a>
+      <a href="#search-and-splash">Search and Splash</a>
+      <a href="#backup">Backup and Restore</a>
+      <a href="#troubleshooting">Troubleshooting</a>
+    </nav>
+
+    <div class="content">
+      <section id="quick-start" class="card">
+        <h2>Quick Start</h2>
+        <ol>
+          <li>Open your browser extensions page and load the extension folder as unpacked.</li>
+          <li>Open a new tab to see Browser Dials.</li>
+          <li>Use the plus card in the grid to add your first dial.</li>
+          <li>Open Settings to configure search, splash background, and sync mode.</li>
+        </ol>
+      </section>
+
+      <section id="sync-server" class="card">
+        <h2>Self-Hosted Sync Server</h2>
+        <p>Use this if you want your dials synced across multiple browsers or devices.</p>
+
+        <h3>Prerequisites</h3>
+        <ul>
+          <li>Docker 20+</li>
+          <li>Docker Compose 2+</li>
+        </ul>
+
+        <h3>Simple Docker setup</h3>
+        <pre><code>cp examples/docker-compose.simple.yml docker-compose.yml
+cp examples/.env.simple .env
+# Edit .env and set strong passwords + API_KEY
+docker-compose up -d
+docker-compose exec server node scripts/create-user.js admin your-password</code></pre>
+
+        <h3>Windows quick setup</h3>
+        <pre><code>.\examples\quickstart.ps1 -Mode simple
+# Then edit .env and run:
+docker-compose up -d</code></pre>
+
+        <h3>Verify server is running</h3>
+        <pre><code>docker-compose ps
+curl http://localhost:3737/api/sync</code></pre>
+        <p>The curl call should return Unauthorized when no auth headers are passed. That means the server is up.</p>
+      </section>
+
+      <section id="connect-sync" class="card">
+        <h2>Connect Extension to Sync</h2>
+        <ol>
+          <li>Open Settings in Browser Dials.</li>
+          <li>Set <strong>Mode</strong> to <strong>Sync to server</strong>.</li>
+          <li>Server URL: <code>http://localhost:3737</code> (or your deployed server URL).</li>
+          <li>Paste the same API key you set in your server <code>.env</code>.</li>
+          <li>Enter your sync username and password.</li>
+          <li>Click <strong>Save Sync Settings</strong>, then <strong>Test Connection</strong>.</li>
+          <li>Use <strong>Force Sync Now</strong> when you want to manually pull/push immediately.</li>
+        </ol>
+      </section>
+
+      <section id="profiles" class="card">
+        <h2>Profiles</h2>
+        <p>Profiles help you separate bookmarks by context (work, personal, travel, learning, etc.).</p>
+        <ul>
+          <li>Create profile: use the plus button in the top bar.</li>
+          <li>Rename profile: use the pencil button in the top bar or from Settings.</li>
+          <li>Delete profile: open Settings and remove it from the Profiles list.</li>
+          <li>Switch profile: click the profile tab in the top bar.</li>
+        </ul>
+      </section>
+
+      <section id="dials" class="card">
+        <h2>Dials and Folders</h2>
+        <h3>Create a dial</h3>
+        <ol>
+          <li>Click the <strong>Add dial</strong> card.</li>
+          <li>Enter title and URL.</li>
+          <li>Optionally upload a custom icon.</li>
+          <li>Save.</li>
+        </ol>
+
+        <h3>Create a folder</h3>
+        <ol>
+          <li>Click <strong>Add dial</strong>.</li>
+          <li>Enable <strong>Create as folder</strong>.</li>
+          <li>Set folder name and save.</li>
+          <li>Open the folder and use <strong>Add link</strong> to add items inside.</li>
+        </ol>
+
+        <h3>Organize quickly</h3>
+        <ul>
+          <li>Drag and drop dials to reorder.</li>
+          <li>Drag a dial onto another dial to merge into a folder.</li>
+          <li>Use right-click on cards for edit/delete actions.</li>
+        </ul>
+      </section>
+
+      <section id="search-and-splash" class="card">
+        <h2>Search and Splash</h2>
+        <ul>
+          <li>Search bar can be shown or hidden in Settings.</li>
+          <li>Click the search logo to switch search engines from the dropdown.</li>
+          <li>Splash background supports uploaded images or public providers.</li>
+          <li>You can tune splash opacity and refresh public background manually.</li>
+        </ul>
+      </section>
+
+      <section id="backup" class="card">
+        <h2>Backup and Restore</h2>
+        <ul>
+          <li>Export JSON from Settings to back up your current data.</li>
+          <li>Import JSON to restore a previous backup.</li>
+          <li>Use this before big cleanup changes or migrations.</li>
+        </ul>
+      </section>
+
+      <section id="troubleshooting" class="card">
+        <h2>Troubleshooting</h2>
+
+        <h3>Sync test fails</h3>
+        <ul>
+          <li>Confirm server URL, API key, username, and password are correct.</li>
+          <li>Check server logs: <code>docker-compose logs -f server</code>.</li>
+          <li>Check service status: <code>docker-compose ps</code>.</li>
+        </ul>
+
+        <h3>Cannot reach server from browser</h3>
+        <ul>
+          <li>Verify the server port is exposed and not in use by another app.</li>
+          <li>Try opening <code>http://localhost:3737/api/sync</code> directly in the browser.</li>
+        </ul>
+
+        <h3>Need a clean restart</h3>
+        <pre><code>docker-compose down
+docker-compose up -d --build</code></pre>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

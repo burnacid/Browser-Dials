@@ -79,6 +79,12 @@ body {
   gap: 16px;
 }
 
+.page-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .page-header__back[hidden] {
   display: none;
 }
@@ -109,8 +115,13 @@ body {
     width: 100%;
   }
 
-  .page-header__back {
+  .page-header__actions {
     width: 100%;
+  }
+
+  .page-header__help,
+  .page-header__back {
+    flex: 1;
   }
 }
 

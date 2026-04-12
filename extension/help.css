@@ -1,0 +1,252 @@
+:root {
+  --bg: #f4f8ff;
+  --surface: rgba(255, 255, 255, 0.82);
+  --surface-solid: #ffffff;
+  --border: #cfdaf3;
+  --text: #102038;
+  --text-muted: #586b86;
+  --accent: #0f766e;
+  --accent-2: #0a4f84;
+  --shadow: 0 16px 36px rgba(10, 30, 60, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1220;
+    --surface: rgba(20, 30, 48, 0.82);
+    --surface-solid: #15243a;
+    --border: #324562;
+    --text: #f2f7ff;
+    --text-muted: #a6b7cf;
+    --shadow: 0 18px 42px rgba(0, 0, 0, 0.42);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Segoe UI Variable", "Aptos", "Segoe UI", sans-serif;
+  background: radial-gradient(1000px 560px at -8% -12%, rgba(15, 118, 110, 0.22), transparent 72%), radial-gradient(980px 500px at 108% 10%, rgba(10, 79, 132, 0.24), transparent 70%), var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  padding: 28px 18px 48px;
+  line-height: 1.45;
+}
+
+.bg-orb {
+  position: fixed;
+  border-radius: 999px;
+  filter: blur(60px);
+  opacity: 0.4;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.bg-orb--a {
+  width: 260px;
+  height: 260px;
+  left: -80px;
+  top: -60px;
+  background: #2dd4bf;
+}
+
+.bg-orb--b {
+  width: 300px;
+  height: 300px;
+  right: -90px;
+  top: 30px;
+  background: #38bdf8;
+}
+
+.hero {
+  max-width: 1180px;
+  margin: 0 auto 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.hero__brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hero__logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.hero p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.hero__actions {
+  display: flex;
+  gap: 10px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: linear-gradient(135deg, var(--accent), #0b5d58);
+  color: #fff;
+  text-decoration: none;
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.btn:hover {
+  filter: brightness(1.05);
+}
+
+.btn--ghost {
+  background: color-mix(in srgb, var(--surface-solid) 80%, transparent);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.layout {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 270px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.toc {
+  position: sticky;
+  top: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.toc h2 {
+  margin: 0 0 2px;
+  font-size: 15px;
+}
+
+.toc a {
+  color: var(--text-muted);
+  text-decoration: none;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 14px;
+}
+
+.toc a:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-solid) 78%, transparent);
+}
+
+.content {
+  display: grid;
+  gap: 14px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 18px;
+}
+
+.card h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+}
+
+.card h3 {
+  margin: 14px 0 8px;
+  font-size: 16px;
+  color: color-mix(in srgb, var(--accent-2) 70%, var(--text));
+}
+
+.card p {
+  margin: 0 0 8px;
+}
+
+.card ol,
+.card ul {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+
+.card li + li {
+  margin-top: 4px;
+}
+
+code {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.95em;
+}
+
+pre {
+  margin: 10px 0;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-solid) 84%, transparent);
+  overflow-x: auto;
+  padding: 12px;
+}
+
+pre code {
+  white-space: pre;
+}
+
+@media (max-width: 980px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .toc {
+    position: static;
+  }
+}
+
+@media (max-width: 680px) {
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hero__actions {
+    width: 100%;
+  }
+
+  .btn {
+    flex: 1;
+  }
+}
