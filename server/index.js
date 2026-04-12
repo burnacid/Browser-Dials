@@ -17,6 +17,30 @@ const dialsRouter    = require('./routes/dials');
 const app  = express();
 const PORT = parseInt(process.env.PORT || '3737', 10);
 
+function maskSecret(value) {
+  const text = String(value || '');
+  if (!text) return '';
+  if (text.length <= 4) return '*'.repeat(text.length);
+  return `${text.slice(0, 2)}***${text.slice(-2)}`;
+}
+
+function sanitizeBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  const clone = { ...body };
+  const sensitiveKeys = ['password', 'current_password', 'new_password', 'confirm_password', 'sync_password', 'api_key'];
+  for (const key of sensitiveKeys) {
+    if (key in clone) {
+      clone[key] = maskSecret(clone[key]);
+    }
+  }
+  return clone;
+}
+
+function logHttp(event, payload) {
+  const timestamp = new Date().toISOString();
+  console.log(`${timestamp} [HTTP] ${event} ${JSON.stringify(payload)}`);
+}
+
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 // Allow requests from Chrome/Brave extension pages and localhost dev tools.
 const allowedOrigins = /^chrome-extension:\/\/|^https?:\/\/localhost|^https?:\/\/127\.0\.0\.1/;
@@ -36,6 +60,38 @@ app.use(cors({
 
 // ─── Body parsing ─────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '15mb' }));
+
+// ─── Request logging ──────────────────────────────────────────────────────────
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  const authHeader = String(req.headers.authorization || '');
+  const maskedAuth = authHeader.startsWith('Bearer ')
+    ? `Bearer ${maskSecret(authHeader.slice(7).trim())}`
+    : authHeader;
+  const maskedSyncPassword = req.headers['x-sync-password']
+    ? maskSecret(req.headers['x-sync-password'])
+    : '';
+
+  logHttp('incoming', {
+    method: req.method,
+    path: req.originalUrl,
+    auth: maskedAuth,
+    syncUser: String(req.headers['x-sync-user'] || ''),
+    syncPassword: maskedSyncPassword,
+    body: sanitizeBody(req.body),
+  });
+
+  res.on('finish', () => {
+    logHttp('completed', {
+      method: req.method,
+      path: req.originalUrl,
+      status: res.statusCode,
+      durationMs: Date.now() - startedAt,
+    });
+  });
+
+  next();
+});
 
 // ─── Static uploads ───────────────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
