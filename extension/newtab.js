@@ -83,7 +83,11 @@ let draggedDialId = null;
 let dragHoverDialId = null;
 let dragHoverMode = null;
 let dragHoverProfileId = null;
+let draggedProfileId = null;
+let dragHoverProfileOrderId = null;
+let dragHoverProfileOrderMode = null;
 let dragDidMove = false;
+let profileDragDidMove = false;
 let folderDraggedItemId = null;
 let folderDragHoverItemId = null;
 let folderDragHoverMode = null;
@@ -604,12 +608,21 @@ function renderProfileTabs() {
     btn.role = 'tab';
     btn.setAttribute('aria-selected', profile.id === activeProfileId);
     btn.dataset.profileId = profile.id;
+    btn.draggable = true;
 
     const nameSpan = document.createElement('span');
     nameSpan.textContent = profile.name;
 
     btn.appendChild(nameSpan);
-    btn.addEventListener('click', () => switchProfile(profile.id));
+    btn.addEventListener('click', () => {
+      if (profileDragDidMove) {
+        profileDragDidMove = false;
+        return;
+      }
+      switchProfile(profile.id);
+    });
+    btn.addEventListener('dragstart', e => handleProfileTabDragStart(e, profile.id));
+    btn.addEventListener('dragend', handleProfileTabDragEnd);
     btn.addEventListener('dragover', e => handleProfileTabDragOver(e, profile.id));
     btn.addEventListener('dragleave', e => handleProfileTabDragLeave(e, profile.id));
     btn.addEventListener('drop', e => handleProfileTabDrop(e, profile.id));
@@ -1032,18 +1045,73 @@ function clearDialDragState() {
   document.querySelectorAll('.dial-card--dragging, .dial-card--drop-before, .dial-card--drop-after, .dial-card--drop-merge').forEach(card => {
     card.classList.remove('dial-card--dragging', 'dial-card--drop-before', 'dial-card--drop-after', 'dial-card--drop-merge');
   });
-  document.querySelectorAll('.profile-tab--drop-target').forEach(tab => tab.classList.remove('profile-tab--drop-target'));
+  applyProfileTabDropState();
 }
 
 function applyProfileTabDropState() {
   document.querySelectorAll('.profile-tab').forEach(tab => {
     if (!(tab instanceof HTMLElement)) return;
-    const isTarget = !!dragHoverProfileId && tab.dataset.profileId === dragHoverProfileId;
-    tab.classList.toggle('profile-tab--drop-target', isTarget);
+    const profileId = tab.dataset.profileId;
+    const isDialTarget = !!dragHoverProfileId && profileId === dragHoverProfileId;
+    const isOrderTarget = !!dragHoverProfileOrderId && profileId === dragHoverProfileOrderId;
+    tab.classList.toggle('profile-tab--drop-target', isDialTarget);
+    tab.classList.toggle('profile-tab--drop-before', isOrderTarget && dragHoverProfileOrderMode === 'before');
+    tab.classList.toggle('profile-tab--drop-after', isOrderTarget && dragHoverProfileOrderMode === 'after');
   });
 }
 
+function clearProfileDragState() {
+  draggedProfileId = null;
+  dragHoverProfileOrderId = null;
+  dragHoverProfileOrderMode = null;
+  document.querySelectorAll('.profile-tab--dragging').forEach(tab => tab.classList.remove('profile-tab--dragging'));
+  applyProfileTabDropState();
+}
+
+function handleProfileTabDragStart(event, profileId) {
+  draggedProfileId = profileId;
+  dragHoverProfileOrderId = null;
+  dragHoverProfileOrderMode = null;
+  profileDragDidMove = false;
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', `profile:${profileId}`);
+  requestAnimationFrame(() => {
+    const tab = event.currentTarget;
+    if (tab instanceof HTMLElement) {
+      tab.classList.add('profile-tab--dragging');
+    }
+  });
+}
+
+function handleProfileTabDragEnd() {
+  clearProfileDragState();
+}
+
+function getProfileTabDropMode(event) {
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLElement)) return 'after';
+  const rect = target.getBoundingClientRect();
+  const relativeX = event.clientX - rect.left;
+  const ratio = rect.width > 0 ? relativeX / rect.width : 0.5;
+  return ratio < 0.5 ? 'before' : 'after';
+}
+
 function handleProfileTabDragOver(event, targetProfileId) {
+  if (draggedProfileId) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (draggedProfileId === targetProfileId) {
+      dragHoverProfileOrderId = null;
+      dragHoverProfileOrderMode = null;
+    } else {
+      dragHoverProfileOrderId = targetProfileId;
+      dragHoverProfileOrderMode = getProfileTabDropMode(event);
+    }
+    applyProfileTabDropState();
+    event.dataTransfer.dropEffect = 'move';
+    return;
+  }
+
   if (!draggedDialId) return;
   event.preventDefault();
   event.stopPropagation();
@@ -1057,6 +1125,12 @@ function handleProfileTabDragLeave(event, targetProfileId) {
   if (related instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(related)) {
     return;
   }
+  if (draggedProfileId && dragHoverProfileOrderId === targetProfileId) {
+    dragHoverProfileOrderId = null;
+    dragHoverProfileOrderMode = null;
+    applyProfileTabDropState();
+    return;
+  }
   if (dragHoverProfileId === targetProfileId) {
     dragHoverProfileId = null;
     applyProfileTabDropState();
@@ -1064,6 +1138,17 @@ function handleProfileTabDragLeave(event, targetProfileId) {
 }
 
 function handleProfileTabDrop(event, targetProfileId) {
+  if (draggedProfileId) {
+    event.preventDefault();
+    event.stopPropagation();
+    const mode = dragHoverProfileOrderMode || getProfileTabDropMode(event);
+    void moveProfileToTarget(draggedProfileId, targetProfileId, mode)
+      .finally(() => {
+        clearProfileDragState();
+      });
+    return;
+  }
+
   if (!draggedDialId) return;
   event.preventDefault();
   event.stopPropagation();
@@ -1071,6 +1156,33 @@ function handleProfileTabDrop(event, targetProfileId) {
     .finally(() => {
       clearDialDragState();
     });
+}
+
+async function moveProfileToTarget(sourceProfileId, targetProfileId, mode) {
+  if (sourceProfileId === targetProfileId) return;
+
+  const ordered = [...state.profiles].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+  const sourceIndex = ordered.findIndex(profile => profile.id === sourceProfileId);
+  const targetIndex = ordered.findIndex(profile => profile.id === targetProfileId);
+  if (sourceIndex < 0 || targetIndex < 0) return;
+
+  const [sourceProfile] = ordered.splice(sourceIndex, 1);
+  let insertIndex = ordered.findIndex(profile => profile.id === targetProfileId);
+  if (insertIndex < 0) {
+    ordered.push(sourceProfile);
+  } else {
+    if (mode === 'after') insertIndex += 1;
+    ordered.splice(insertIndex, 0, sourceProfile);
+  }
+
+  ordered.forEach((profile, index) => {
+    profile.position = index;
+  });
+  state.profiles = ordered;
+  profileDragDidMove = true;
+  await saveLocal();
+  renderAll();
+  showToast('Profile order updated', 'ok');
 }
 
 async function moveDialToProfile(sourceDialId, targetProfileId) {

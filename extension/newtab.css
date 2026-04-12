@@ -125,6 +125,18 @@ body.splash-enabled::after {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
+.profile-tab.profile-tab--dragging {
+  opacity: .45;
+}
+
+.profile-tab.profile-tab--drop-before {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.profile-tab.profile-tab--drop-after {
+  box-shadow: inset -3px 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
 .profile-tab.active.profile-tab--drop-target {
   color: #fff;
   box-shadow: 0 0 0 2px color-mix(in srgb, #ffffff 55%, transparent);

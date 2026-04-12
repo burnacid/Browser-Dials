@@ -96,6 +96,7 @@ let state = { profiles: [] };
 let syncLoggedIn = false;
 let syncLoggedUser = '';
 let activeProfileId = null;
+const expandedThemeEditorProfileIds = new Set();
 
 function normalizeGridColumns(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -137,6 +138,14 @@ function setProfileGridColumns(profile, value) {
 
 function isHexColour(value) {
   return typeof value === 'string' && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(value);
+}
+
+function normalizeHexColourInput(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  const withHash = trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+  if (!/^#[0-9a-fA-F]{6}$/.test(withHash)) return null;
+  return withHash.toLowerCase();
 }
 
 function normalizeProfileThemeMode(value) {
@@ -730,9 +739,20 @@ function renderProfiles() {
 
   for (const profile of sorted) {
     const li = document.createElement('li');
-    const name = document.createElement('span');
+    const name = document.createElement('div');
     name.className = 'item-name';
-    name.textContent = `${profile.name} (${(profile.dials || []).length} dials)`;
+
+    const namePrimary = document.createElement('span');
+    namePrimary.className = 'item-name-primary';
+    namePrimary.textContent = profile.name;
+
+    const nameSecondary = document.createElement('span');
+    nameSecondary.className = 'item-name-secondary';
+    const dialCount = (profile.dials || []).length;
+    nameSecondary.textContent = `${dialCount} dial${dialCount === 1 ? '' : 's'}`;
+
+    name.appendChild(namePrimary);
+    name.appendChild(nameSecondary);
 
     const gridWrap = document.createElement('label');
     gridWrap.className = 'item-grid-setting';
@@ -795,8 +815,27 @@ function renderProfiles() {
 
     if (theme.mode === PROFILE_THEME_MODE_CUSTOM) {
       const palette = { ...PROFILE_THEME_LIGHT, ...theme.custom };
+      const isExpanded = expandedThemeEditorProfileIds.has(profile.id);
+
+      const paletteToggle = document.createElement('button');
+      paletteToggle.type = 'button';
+      paletteToggle.className = 'btn-secondary btn-sm item-theme-palette-toggle';
+      paletteToggle.textContent = isExpanded ? 'Hide custom colors' : 'Edit custom colors';
+      paletteToggle.addEventListener('click', () => {
+        if (expandedThemeEditorProfileIds.has(profile.id)) {
+          expandedThemeEditorProfileIds.delete(profile.id);
+        } else {
+          expandedThemeEditorProfileIds.add(profile.id);
+        }
+        renderProfiles();
+      });
+      settings.appendChild(paletteToggle);
+
       const paletteWrap = document.createElement('div');
       paletteWrap.className = 'item-theme-palette';
+      if (!isExpanded) {
+        paletteWrap.classList.add('hidden');
+      }
 
       const labelMap = {
         bg: 'BG',
@@ -817,35 +856,83 @@ function renderProfiles() {
         const swatchText = document.createElement('span');
         swatchText.textContent = labelMap[key] || key;
 
+        const swatchPicker = document.createElement('input');
+        swatchPicker.type = 'color';
+        swatchPicker.className = 'theme-colour__picker';
+        swatchPicker.value = normalizeHexColourInput(String(palette[key] || '')) || '#000000';
+
         const swatchInput = document.createElement('input');
-        swatchInput.type = 'color';
-        swatchInput.value = isHexColour(palette[key]) ? palette[key].slice(0, 7) : '#000000';
-        swatchInput.addEventListener('change', async () => {
+        swatchInput.type = 'text';
+        swatchInput.className = 'theme-colour__input';
+        swatchInput.autocomplete = 'off';
+        swatchInput.spellcheck = false;
+        swatchInput.placeholder = '#RRGGBB';
+        swatchInput.maxLength = 7;
+        swatchInput.value = normalizeHexColourInput(String(palette[key] || '')) || '#000000';
+
+        const saveThemeColour = async rawValue => {
+          const normalized = normalizeHexColourInput(rawValue);
+          if (!normalized) {
+            swatchInput.classList.add('theme-colour__input--invalid');
+            return;
+          }
+          swatchInput.classList.remove('theme-colour__input--invalid');
+          swatchInput.value = normalized;
+          swatchPicker.value = normalized;
           const current = getProfileTheme(profile);
-          const nextCustom = { ...current.custom, [key]: swatchInput.value };
+          const nextCustom = { ...current.custom, [key]: normalized };
           setProfileTheme(profile, PROFILE_THEME_MODE_CUSTOM, nextCustom);
           await saveState();
           applyActiveProfileTheme();
+        };
+
+        swatchInput.addEventListener('input', () => {
+          const normalized = normalizeHexColourInput(swatchInput.value);
+          if (normalized) {
+            swatchInput.classList.remove('theme-colour__input--invalid');
+            swatchPicker.value = normalized;
+          }
+        });
+        swatchInput.addEventListener('change', () => {
+          void saveThemeColour(swatchInput.value);
+        });
+        swatchInput.addEventListener('blur', () => {
+          void saveThemeColour(swatchInput.value);
+        });
+
+        swatchPicker.addEventListener('input', () => {
+          swatchInput.classList.remove('theme-colour__input--invalid');
+          swatchInput.value = swatchPicker.value;
+        });
+        swatchPicker.addEventListener('change', () => {
+          void saveThemeColour(swatchPicker.value);
         });
 
         swatchLabel.appendChild(swatchText);
+        swatchLabel.appendChild(swatchPicker);
         swatchLabel.appendChild(swatchInput);
         paletteWrap.appendChild(swatchLabel);
       }
       settings.appendChild(paletteWrap);
+    } else {
+      expandedThemeEditorProfileIds.delete(profile.id);
     }
 
     const actions = document.createElement('div');
     actions.className = 'item-actions';
 
     const renameBtn = document.createElement('button');
-    renameBtn.className = 'btn-secondary btn-sm';
-    renameBtn.textContent = 'Rename';
+    renameBtn.className = 'btn-secondary btn-sm btn-icon-compact';
+    renameBtn.textContent = '✏';
+    renameBtn.title = `Rename ${profile.name}`;
+    renameBtn.setAttribute('aria-label', `Rename ${profile.name}`);
     renameBtn.addEventListener('click', () => renameProfile(profile));
 
     const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'btn-danger btn-sm';
-    deleteBtn.textContent = 'Delete';
+    deleteBtn.className = 'btn-danger btn-sm btn-icon-compact';
+    deleteBtn.textContent = '🗑';
+    deleteBtn.title = `Delete ${profile.name}`;
+    deleteBtn.setAttribute('aria-label', `Delete ${profile.name}`);
     deleteBtn.addEventListener('click', () => deleteProfile(profile));
 
     actions.appendChild(renameBtn);
