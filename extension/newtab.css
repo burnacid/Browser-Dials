@@ -116,6 +116,16 @@ body.splash-enabled::after {
 .profile-tab.active {
   background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent-dark) 78%, #ffffff 22%));
   color: #fff;
+  animation: profile-tab-pop 180ms cubic-bezier(.22, 1, .36, 1);
+}
+
+@keyframes profile-tab-pop {
+  from {
+    transform: translateY(2px) scale(.98);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
 }
 
 .profile-tab__rename {
@@ -264,7 +274,7 @@ body.splash-enabled::after {
 
 #search-shell {
   max-width: 840px;
-  margin: 14px auto 0;
+  margin: 35px auto 0;
   padding: 0 18px;
 }
 
@@ -314,17 +324,29 @@ body.splash-enabled::after {
   z-index: 90;
   display: flex;
   justify-content: flex-end;
+  opacity: 1;
+  transition: opacity 180ms ease;
 }
 
 .settings-drawer-overlay.hidden {
   display: none;
 }
 
+.settings-drawer-overlay.settings-drawer-overlay--opening,
+.settings-drawer-overlay.settings-drawer-overlay--closing {
+  opacity: 0;
+}
+
+.settings-drawer-overlay.settings-drawer-overlay--closing {
+  pointer-events: none;
+}
+
 .settings-drawer-backdrop {
   position: absolute;
   inset: 0;
   background: rgba(7, 12, 24, .42);
-  animation: drawer-backdrop-in 180ms ease;
+  opacity: 1;
+  transition: opacity 180ms ease;
 }
 
 .settings-drawer {
@@ -338,7 +360,20 @@ body.splash-enabled::after {
   -webkit-backdrop-filter: blur(16px);
   border-left: 1px solid var(--border);
   box-shadow: -18px 0 40px rgba(0, 0, 0, .24);
-  animation: drawer-slide-in 220ms cubic-bezier(.22, 1, .36, 1);
+  opacity: 1;
+  transform: translateX(0);
+  transition: transform 240ms cubic-bezier(.22, 1, .36, 1), opacity 180ms ease;
+}
+
+.settings-drawer-overlay.settings-drawer-overlay--opening .settings-drawer,
+.settings-drawer-overlay.settings-drawer-overlay--closing .settings-drawer {
+  opacity: 0;
+  transform: translateX(28px);
+}
+
+.settings-drawer-overlay.settings-drawer-overlay--opening .settings-drawer-backdrop,
+.settings-drawer-overlay.settings-drawer-overlay--closing .settings-drawer-backdrop {
+  opacity: 0;
 }
 
 .settings-drawer__header {
@@ -392,7 +427,22 @@ body.splash-enabled::after {
   gap: 18px;
   padding: 30px;
   max-width: 1280px;
-  margin: 0 auto;
+  margin: 15px auto;
+}
+
+#dial-grid.dial-grid--profile-switch-in {
+  animation: dial-grid-profile-switch-in 220ms cubic-bezier(.22, .61, .36, 1);
+}
+
+@keyframes dial-grid-profile-switch-in {
+  from {
+    opacity: .02;
+    transform: translateY(10px) scale(.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 /* ─── Single dial card ───────────────────────────────────────────────────────── */
@@ -524,8 +574,8 @@ body.splash-enabled::after {
   min-width: 0;
   min-height: 0;
   border-radius: 4px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  overflow: visible;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -534,7 +584,8 @@ body.splash-enabled::after {
 .dial-card__folder-cell-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  padding: 2px;
   display: block;
 }
 
@@ -676,8 +727,33 @@ body.splash-enabled::after {
   justify-content: center;
   z-index: 100;
   padding: 16px;
+  opacity: 1;
+  transition: opacity 180ms ease;
 }
 .modal-overlay.hidden { display: none; }
+
+.modal-overlay.modal-overlay--opening,
+.modal-overlay.modal-overlay--closing {
+  opacity: 0;
+}
+
+.modal-overlay.modal-overlay--closing {
+  pointer-events: none;
+}
+
+#folder-modal-overlay {
+  opacity: 1;
+  transition: opacity 180ms ease;
+}
+
+#folder-modal-overlay.modal-overlay--opening,
+#folder-modal-overlay.modal-overlay--closing {
+  opacity: 0;
+}
+
+#folder-modal-overlay.modal-overlay--closing {
+  pointer-events: none;
+}
 
 @media (max-width: 760px) {
   .settings-drawer {
@@ -747,8 +823,17 @@ body.splash-enabled::after {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition: transform 220ms cubic-bezier(.22, .61, .36, 1), opacity 180ms ease;
 }
 .modal--small { max-width: 320px; }
+
+.modal-overlay.modal-overlay--opening .modal,
+.modal-overlay.modal-overlay--closing .modal {
+  opacity: 0;
+  transform: translateY(14px) scale(.97);
+}
 
 .modal h2 {
   font-size: 18px;
@@ -849,6 +934,15 @@ body.splash-enabled::after {
 /* ─── Folder modal ───────────────────────────────────────────────────────────── */
 .modal--folder {
   max-width: 980px;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition: transform 220ms cubic-bezier(.22, .61, .36, 1), opacity 180ms ease;
+}
+
+#folder-modal-overlay.modal-overlay--opening .modal--folder,
+#folder-modal-overlay.modal-overlay--closing .modal--folder {
+  opacity: 0;
+  transform: translateY(16px) scale(.97);
 }
 
 .folder-tile-grid {
@@ -856,8 +950,9 @@ body.splash-enabled::after {
   grid-template-columns: repeat(auto-fill, minmax(var(--dial-size), 1fr));
   gap: 18px;
   max-height: 380px;
-  overflow-y: auto;
-  padding: 6px;
+  overflow-y: visible;
+  /* Keep hover shadows inside the scroll container so edges do not clip. */
+  padding: 14px;
 }
 
 .folder-tile {
@@ -911,6 +1006,7 @@ body.splash-enabled::after {
   height: 52px;
   border-radius: 10px;
   object-fit: contain;
+  padding: 2px;
   flex-shrink: 0;
   display: block;
 }
@@ -944,6 +1040,23 @@ body.splash-enabled::after {
 
 .modal--folder.folder-modal--drop-out {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 52%, transparent), 0 8px 32px rgba(0,0,0,.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-drawer-overlay,
+  .settings-drawer-backdrop,
+  .settings-drawer,
+  .modal-overlay,
+  .modal,
+  #folder-modal-overlay,
+  #folder-modal-overlay .modal--folder {
+    transition: none;
+  }
+
+  .profile-tab.active,
+  #dial-grid.dial-grid--profile-switch-in {
+    animation: none;
+  }
 }
 
 /* right-click delete menu on folder tiles */

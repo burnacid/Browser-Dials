@@ -329,6 +329,18 @@ let pendingIconData      = null;   // data URL for icon selected in the modal
 let openFolderId         = null;
 let addingToFolderId     = null;   // non-null when modal is adding/editing an item inside a folder
 let editingFolderItemId  = null;   // non-null when editing an existing folder item
+let profileModalMode     = 'create';
+let profileModalTargetId = null;
+const FOLDER_MODAL_ANIM_MS = 220;
+let folderModalCloseTimeoutId = null;
+const PROFILE_SWITCH_ANIM_MS = 220;
+let profileSwitchAnimTimeoutId = null;
+const DIAL_MODAL_ANIM_MS = 220;
+let dialModalCloseTimeoutId = null;
+const PROFILE_MODAL_ANIM_MS = 220;
+let profileModalCloseTimeoutId = null;
+const SETTINGS_DRAWER_ANIM_MS = 240;
+let settingsDrawerCloseTimeoutId = null;
 
 function isFolder(dial) {
   return dial?.type === 'folder';
@@ -588,16 +600,31 @@ function updateProfileActionButtons() {
 
 function openSettingsDrawer() {
   const overlay = document.getElementById('settings-drawer-overlay');
-  if (overlay.classList.contains('hidden')) {
-    overlay.classList.remove('hidden');
-    activateModalFocusTrap('settings-drawer-overlay', '#btn-settings-close');
+  if (settingsDrawerCloseTimeoutId !== null) {
+    clearTimeout(settingsDrawerCloseTimeoutId);
+    settingsDrawerCloseTimeoutId = null;
   }
+  overlay.classList.remove('settings-drawer-overlay--closing');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('settings-drawer-overlay--opening');
+  void overlay.offsetWidth;
+  overlay.classList.remove('settings-drawer-overlay--opening');
+  activateModalFocusTrap('settings-drawer-overlay', '#btn-settings-close');
 }
 
 function closeSettingsDrawer() {
   const overlay = document.getElementById('settings-drawer-overlay');
-  if (overlay.classList.contains('hidden')) return;
-  overlay.classList.add('hidden');
+  if (overlay.classList.contains('hidden') || overlay.classList.contains('settings-drawer-overlay--closing')) return;
+  overlay.classList.remove('settings-drawer-overlay--opening');
+  overlay.classList.add('settings-drawer-overlay--closing');
+  if (settingsDrawerCloseTimeoutId !== null) {
+    clearTimeout(settingsDrawerCloseTimeoutId);
+  }
+  settingsDrawerCloseTimeoutId = setTimeout(() => {
+    overlay.classList.add('hidden');
+    overlay.classList.remove('settings-drawer-overlay--closing');
+    settingsDrawerCloseTimeoutId = null;
+  }, SETTINGS_DRAWER_ANIM_MS);
   releaseModalFocusTrap('settings-drawer-overlay', true);
 }
 
@@ -1085,21 +1112,39 @@ function getActiveProfile() {
 }
 
 function openFolderModal(folderId) {
+  if (folderModalCloseTimeoutId !== null) {
+    clearTimeout(folderModalCloseTimeoutId);
+    folderModalCloseTimeoutId = null;
+  }
   openFolderId = folderId;
   renderFolderItems();
   const overlay = document.getElementById('folder-modal-overlay');
+  overlay.classList.remove('modal-overlay--closing');
   overlay.classList.remove('hidden');
+  overlay.classList.add('modal-overlay--opening');
+  // Force one layout frame so opening transition starts from the initial state.
+  void overlay.offsetWidth;
+  overlay.classList.remove('modal-overlay--opening');
   activateModalFocusTrap('folder-modal-overlay', '#folder-add-link');
 }
 
 function closeFolderModal() {
   const overlay = document.getElementById('folder-modal-overlay');
-  if (overlay.classList.contains('hidden')) return;
+  if (overlay.classList.contains('hidden') || overlay.classList.contains('modal-overlay--closing')) return;
   clearFolderDragState();
   const modal = document.querySelector('#folder-modal-overlay .modal--folder');
   modal?.classList.remove('folder-modal--drop-out');
   openFolderId = null;
-  overlay.classList.add('hidden');
+  overlay.classList.remove('modal-overlay--opening');
+  overlay.classList.add('modal-overlay--closing');
+  if (folderModalCloseTimeoutId !== null) {
+    clearTimeout(folderModalCloseTimeoutId);
+  }
+  folderModalCloseTimeoutId = setTimeout(() => {
+    overlay.classList.add('hidden');
+    overlay.classList.remove('modal-overlay--closing');
+    folderModalCloseTimeoutId = null;
+  }, FOLDER_MODAL_ANIM_MS);
   releaseModalFocusTrap('folder-modal-overlay', true);
 }
 
@@ -1480,22 +1525,85 @@ async function getPublicSplashUrl() {
 
 // ─── Profile actions ──────────────────────────────────────────────────────────
 function switchProfile(id) {
+  if (id === activeProfileId) return;
   activeProfileId = id;
   chrome.storage.local.set({ [STORAGE_KEY_ACTIVE]: id });
   renderAll();
+  animateProfileSwitch();
+}
+
+function animateProfileSwitch() {
+  const grid = document.getElementById('dial-grid');
+  if (!(grid instanceof HTMLElement)) return;
+
+  grid.classList.remove('dial-grid--profile-switch-in');
+  // Force a reflow so re-adding the class always retriggers the keyframe.
+  void grid.offsetWidth;
+  grid.classList.add('dial-grid--profile-switch-in');
+
+  if (profileSwitchAnimTimeoutId !== null) {
+    clearTimeout(profileSwitchAnimTimeoutId);
+  }
+  profileSwitchAnimTimeoutId = setTimeout(() => {
+    grid.classList.remove('dial-grid--profile-switch-in');
+    profileSwitchAnimTimeoutId = null;
+  }, PROFILE_SWITCH_ANIM_MS);
 }
 
 function openAddProfileModal() {
+  if (profileModalCloseTimeoutId !== null) {
+    clearTimeout(profileModalCloseTimeoutId);
+    profileModalCloseTimeoutId = null;
+  }
+  profileModalMode = 'create';
+  profileModalTargetId = null;
+  document.getElementById('profile-modal-title').textContent = 'New Profile';
+  document.getElementById('profile-modal-save').textContent = 'Create';
   document.getElementById('profile-name-input').value = '';
   const overlay = document.getElementById('profile-modal-overlay');
+  overlay.classList.remove('modal-overlay--closing');
   overlay.classList.remove('hidden');
+  overlay.classList.add('modal-overlay--opening');
+  void overlay.offsetWidth;
+  overlay.classList.remove('modal-overlay--opening');
+  activateModalFocusTrap('profile-modal-overlay', '#profile-name-input');
+}
+
+function openRenameProfileModal(profile) {
+  if (!profile) return;
+  if (profileModalCloseTimeoutId !== null) {
+    clearTimeout(profileModalCloseTimeoutId);
+    profileModalCloseTimeoutId = null;
+  }
+  profileModalMode = 'rename';
+  profileModalTargetId = profile.id;
+  document.getElementById('profile-modal-title').textContent = 'Rename Profile';
+  document.getElementById('profile-modal-save').textContent = 'Save';
+  document.getElementById('profile-name-input').value = profile.name || '';
+  const overlay = document.getElementById('profile-modal-overlay');
+  overlay.classList.remove('modal-overlay--closing');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('modal-overlay--opening');
+  void overlay.offsetWidth;
+  overlay.classList.remove('modal-overlay--opening');
   activateModalFocusTrap('profile-modal-overlay', '#profile-name-input');
 }
 
 function closeProfileModal() {
   const overlay = document.getElementById('profile-modal-overlay');
-  if (overlay.classList.contains('hidden')) return;
-  overlay.classList.add('hidden');
+  if (overlay.classList.contains('hidden') || overlay.classList.contains('modal-overlay--closing')) return;
+  overlay.classList.remove('modal-overlay--opening');
+  overlay.classList.add('modal-overlay--closing');
+  if (profileModalCloseTimeoutId !== null) {
+    clearTimeout(profileModalCloseTimeoutId);
+  }
+  profileModalCloseTimeoutId = setTimeout(() => {
+    overlay.classList.add('hidden');
+    overlay.classList.remove('modal-overlay--closing');
+    profileModalCloseTimeoutId = null;
+  }, PROFILE_MODAL_ANIM_MS);
+  profileModalMode = 'create';
+  profileModalTargetId = null;
   releaseModalFocusTrap('profile-modal-overlay', true);
 }
 
@@ -1518,12 +1626,33 @@ async function createProfile(name) {
   showToast('Profile created', 'ok');
 }
 
-async function promptRenameProfile(profile) {
-  const name = prompt('Rename profile:', profile.name);
-  if (!name || !name.trim() || name.trim() === profile.name) return;
-  profile.name = name.trim();
+async function renameProfile(profileId, nextName) {
+  const profile = state.profiles.find(p => p.id === profileId);
+  if (!profile) return;
+  const trimmed = nextName.trim();
+  if (!trimmed || trimmed === profile.name) return;
+  profile.name = trimmed;
   await saveLocal();
   renderAll();
+  showToast('Profile renamed', 'ok');
+}
+
+async function saveProfileFromModal() {
+  const nameInput = document.getElementById('profile-name-input');
+  const name = nameInput.value.trim();
+  if (!name) {
+    nameInput.focus();
+    return;
+  }
+
+  if (profileModalMode === 'rename' && profileModalTargetId) {
+    await renameProfile(profileModalTargetId, name);
+    closeProfileModal();
+    return;
+  }
+
+  await createProfile(name);
+  closeProfileModal();
 }
 
 async function confirmDeleteProfile(profile) {
@@ -1539,6 +1668,10 @@ async function confirmDeleteProfile(profile) {
 
 // ─── Dial actions ─────────────────────────────────────────────────────────────
 function openAddModal(folderId = null) {
+  if (dialModalCloseTimeoutId !== null) {
+    clearTimeout(dialModalCloseTimeoutId);
+    dialModalCloseTimeoutId = null;
+  }
   editingDialId    = null;
   addingToFolderId = folderId || null;
   pendingIconData  = null;
@@ -1557,11 +1690,20 @@ function openAddModal(folderId = null) {
   updateIconBgColorUi();
   updateDialModalTypeUi();
   if (folderId) closeFolderModal();
-  document.getElementById('modal-overlay').classList.remove('hidden');
+  const overlay = document.getElementById('modal-overlay');
+  overlay.classList.remove('modal-overlay--closing');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('modal-overlay--opening');
+  void overlay.offsetWidth;
+  overlay.classList.remove('modal-overlay--opening');
   activateModalFocusTrap('modal-overlay', '#modal-url-input');
 }
 
 function openEditModal(dial) {
+  if (dialModalCloseTimeoutId !== null) {
+    clearTimeout(dialModalCloseTimeoutId);
+    dialModalCloseTimeoutId = null;
+  }
   editingDialId   = dial.id;
   pendingIconData = null;
   document.getElementById('modal-title').textContent       = 'Edit Dial';
@@ -1587,14 +1729,28 @@ function openEditModal(dial) {
     removeBtn.classList.add('hidden');
   }
 
-  document.getElementById('modal-overlay').classList.remove('hidden');
+  const overlay = document.getElementById('modal-overlay');
+  overlay.classList.remove('modal-overlay--closing');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('modal-overlay--opening');
+  void overlay.offsetWidth;
+  overlay.classList.remove('modal-overlay--opening');
   activateModalFocusTrap('modal-overlay', '#modal-title-input');
 }
 
 function closeModal() {
   const overlay = document.getElementById('modal-overlay');
-  if (overlay.classList.contains('hidden')) return;
-  overlay.classList.add('hidden');
+  if (overlay.classList.contains('hidden') || overlay.classList.contains('modal-overlay--closing')) return;
+  overlay.classList.remove('modal-overlay--opening');
+  overlay.classList.add('modal-overlay--closing');
+  if (dialModalCloseTimeoutId !== null) {
+    clearTimeout(dialModalCloseTimeoutId);
+  }
+  dialModalCloseTimeoutId = setTimeout(() => {
+    overlay.classList.add('hidden');
+    overlay.classList.remove('modal-overlay--closing');
+    dialModalCloseTimeoutId = null;
+  }, DIAL_MODAL_ANIM_MS);
   releaseModalFocusTrap('modal-overlay', true);
   editingDialId   = null;
   pendingIconData = null;
@@ -2332,7 +2488,7 @@ document.getElementById('btn-add-profile').addEventListener('click', openAddProf
 document.getElementById('btn-edit-profile').addEventListener('click', () => {
   const activeProfile = getActiveProfile();
   if (!activeProfile) return;
-  void promptRenameProfile(activeProfile);
+  openRenameProfileModal(activeProfile);
 });
 document.getElementById('btn-settings').addEventListener('click', toggleSettingsDrawer);
 document.getElementById('btn-settings-close').addEventListener('click', closeSettingsDrawer);
@@ -2406,9 +2562,7 @@ document.getElementById('profile-modal-cancel').addEventListener('click', () => 
   closeProfileModal();
 });
 document.getElementById('profile-modal-save').addEventListener('click', () => {
-  const name = document.getElementById('profile-name-input').value;
-  closeProfileModal();
-  createProfile(name);
+  void saveProfileFromModal();
 });
 document.getElementById('profile-modal-overlay').addEventListener('click', e => {
   if (e.target === e.currentTarget) {
