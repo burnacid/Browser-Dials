@@ -1,7 +1,7 @@
 {
   "name": "browser-dials",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.2",
   "description": "Root workspace — icon generation only",
   "scripts": {
     "icons": "node generate-icons.js",

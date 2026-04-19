@@ -7,7 +7,38 @@ if ([string]::IsNullOrWhiteSpace($version)) {
     exit 1
 }
 
-$packageScript = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "package-extension.ps1"
+function Set-JsonVersion {
+    param(
+        [string]$Path,
+        [string]$Version
+    )
+
+    if (-not (Test-Path $Path)) {
+        throw "JSON file not found at $Path"
+    }
+
+    $json = Get-Content $Path -Raw | ConvertFrom-Json
+    $json.version = $Version
+    $json | ConvertTo-Json -Depth 10 | Set-Content $Path -Encoding utf8
+}
+
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$rootPackageJson = Join-Path $scriptDir "package.json"
+$serverPackageJson = Join-Path $scriptDir "server\package.json"
+$extensionManifestJson = Join-Path $scriptDir "extension\manifest.json"
+
+Write-Host "`nUpdating package versions ..." -ForegroundColor Cyan
+try {
+    Set-JsonVersion -Path $rootPackageJson -Version $version
+    Set-JsonVersion -Path $serverPackageJson -Version $version
+    Set-JsonVersion -Path $extensionManifestJson -Version $version
+}
+catch {
+    Write-Error "Failed to update package versions: $($_.Exception.Message)"
+    exit 1
+}
+
+$packageScript = Join-Path $scriptDir "package-extension.ps1"
 
 Write-Host "`nPackaging extension release artifact ..." -ForegroundColor Cyan
 try {
