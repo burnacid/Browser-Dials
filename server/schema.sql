@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS `profiles` (
   `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_profiles_user` (`user_id`),
+  KEY `idx_profiles_user_position` (`user_id`, `position`, `created_at`),
   CONSTRAINT `fk_profiles_user`
     FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
     ON DELETE CASCADE ON UPDATE CASCADE
@@ -51,6 +52,7 @@ CREATE TABLE IF NOT EXISTS `dials` (
   `settings_json` LONGTEXT   NULL,
   `created_at` DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  KEY `idx_dials_profile_position` (`profile_id`, `position`, `created_at`),
   CONSTRAINT `fk_dials_profile`
     FOREIGN KEY (`profile_id`) REFERENCES `profiles` (`id`)
     ON DELETE CASCADE ON UPDATE CASCADE

@@ -1,16 +1,17 @@
 'use strict';
 
 const db = require('../db');
+const { sendError } = require('../lib/http');
 
 async function requireApiKey(req, res, next) {
   const header = req.headers['authorization'] ?? '';
   if (!header.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization header' });
+    return sendError(res, 401, 'MISSING_AUTH_HEADER', 'Missing authorization header');
   }
 
   const token = header.slice(7).trim();
   if (!token) {
-    return res.status(401).json({ error: 'Empty token' });
+    return sendError(res, 401, 'EMPTY_AUTH_TOKEN', 'Empty token');
   }
 
   try {
@@ -19,14 +20,14 @@ async function requireApiKey(req, res, next) {
       [token]
     );
     if (rows.length === 0) {
-      return res.status(403).json({ error: 'Invalid API key' });
+      return sendError(res, 403, 'INVALID_API_KEY', 'Invalid API key');
     }
 
     req.apiKeyId = rows[0].id;
     next();
   } catch (err) {
     console.error('API key check error:', err.message);
-    return res.status(500).json({ error: 'Internal server error' });
+    return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Internal server error');
   }
 }
 

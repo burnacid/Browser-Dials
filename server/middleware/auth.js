@@ -10,6 +10,7 @@
 
 const db = require('../db');
 const { verifyPassword } = require('../security');
+const { sendError } = require('../lib/http');
 
 async function requireAuth(req, res, next) {
   const header = req.headers['authorization'] ?? '';
@@ -17,15 +18,15 @@ async function requireAuth(req, res, next) {
   const password = String(req.headers['x-sync-password'] ?? '');
 
   if (!header.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization header' });
+    return sendError(res, 401, 'MISSING_AUTH_HEADER', 'Missing authorization header');
   }
 
   const token = header.slice(7).trim();
   if (!token) {
-    return res.status(401).json({ error: 'Empty token' });
+    return sendError(res, 401, 'EMPTY_AUTH_TOKEN', 'Empty token');
   }
   if (!username || !password) {
-    return res.status(401).json({ error: 'Missing user credentials' });
+    return sendError(res, 401, 'MISSING_USER_CREDENTIALS', 'Missing user credentials');
   }
 
   try {
@@ -34,7 +35,7 @@ async function requireAuth(req, res, next) {
       [token]
     );
     if (keyRows.length === 0) {
-      return res.status(403).json({ error: 'Invalid API key' });
+      return sendError(res, 403, 'INVALID_API_KEY', 'Invalid API key');
     }
 
     const [userRows] = await db.execute(
@@ -42,15 +43,15 @@ async function requireAuth(req, res, next) {
       [username]
     );
     if (userRows.length === 0) {
-      return res.status(403).json({ error: 'Invalid user credentials' });
+      return sendError(res, 403, 'INVALID_USER_CREDENTIALS', 'Invalid user credentials');
     }
 
     const user = userRows[0];
     if (!user.is_active) {
-      return res.status(403).json({ error: 'User is disabled' });
+      return sendError(res, 403, 'USER_DISABLED', 'User is disabled');
     }
     if (!verifyPassword(password, user.password_hash)) {
-      return res.status(403).json({ error: 'Invalid user credentials' });
+      return sendError(res, 403, 'INVALID_USER_CREDENTIALS', 'Invalid user credentials');
     }
 
     req.auth = {
@@ -61,7 +62,7 @@ async function requireAuth(req, res, next) {
     next();
   } catch (err) {
     console.error('Auth DB error:', err.message);
-    return res.status(500).json({ error: 'Internal server error' });
+    return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Internal server error');
   }
 }
 

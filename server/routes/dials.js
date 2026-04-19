@@ -6,6 +6,8 @@ const path     = require('path');
 const fs       = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const db       = require('../db');
+const { ensureJsonObjectBody, validateWith } = require('../middleware/validate');
+const { sendError } = require('../lib/http');
 
 const router = express.Router({ mergeParams: true });
 
@@ -51,6 +53,35 @@ function validateUrl(raw) {
   }
 }
 
+function validateCreateDialPayload(req) {
+  const { title, url } = req.body ?? {};
+
+  if (!url || typeof url !== 'string') {
+    return 'url is required';
+  }
+  if (typeof title === 'string' && title.length > 200) {
+    return 'title too long (max 200 chars)';
+  }
+
+  return null;
+}
+
+function validateUpdateDialPayload(req) {
+  const { title, url, position } = req.body ?? {};
+
+  if (url === undefined && title === undefined && position === undefined) {
+    return 'Nothing to update';
+  }
+  if (position !== undefined && !Number.isInteger(position)) {
+    return 'position must be an integer';
+  }
+  if (title !== undefined && String(title).length > 200) {
+    return 'title too long (max 200 chars)';
+  }
+
+  return null;
+}
+
 // ─── List dials for a profile ─────────────────────────────────────────────────
 router.get('/', async (req, res) => {
   const { profileId } = req.params;
@@ -67,25 +98,19 @@ router.get('/', async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to list dials' });
+    return sendError(res, 500, 'LIST_DIALS_FAILED', 'Failed to list dials');
   }
 });
 
 // ─── Create dial ──────────────────────────────────────────────────────────────
-router.post('/', async (req, res) => {
+router.post('/', ensureJsonObjectBody, validateWith(validateCreateDialPayload), async (req, res) => {
   const { profileId } = req.params;
   const userId = req.auth.userId;
   const { title, url, position } = req.body ?? {};
 
-  if (!url || typeof url !== 'string') {
-    return res.status(400).json({ error: 'url is required' });
-  }
   const cleanUrl = validateUrl(url.trim());
   if (!cleanUrl) {
-    return res.status(400).json({ error: 'url must be a valid http/https URL' });
-  }
-  if (title && title.length > 200) {
-    return res.status(400).json({ error: 'title too long (max 200 chars)' });
+    return sendError(res, 400, 'INVALID_URL', 'url must be a valid http/https URL');
   }
 
   const [profileRows] = await db.execute(
@@ -93,7 +118,7 @@ router.post('/', async (req, res) => {
     [profileId, userId]
   );
   if (profileRows.length === 0) {
-    return res.status(404).json({ error: 'Profile not found' });
+    return sendError(res, 404, 'PROFILE_NOT_FOUND', 'Profile not found');
   }
 
   const id  = uuidv4();
@@ -108,12 +133,12 @@ router.post('/', async (req, res) => {
     res.status(201).json(rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to create dial' });
+    return sendError(res, 500, 'CREATE_DIAL_FAILED', 'Failed to create dial');
   }
 });
 
 // ─── Update dial ──────────────────────────────────────────────────────────────
-router.put('/:dialId', async (req, res) => {
+router.put('/:dialId', ensureJsonObjectBody, validateWith(validateUpdateDialPayload), async (req, res) => {
   const { dialId } = req.params;
   const userId = req.auth.userId;
   const { title, url, position } = req.body ?? {};
@@ -124,30 +149,20 @@ router.put('/:dialId', async (req, res) => {
   if (url !== undefined) {
     const cleanUrl = validateUrl(String(url).trim());
     if (!cleanUrl) {
-      return res.status(400).json({ error: 'url must be a valid http/https URL' });
+      return sendError(res, 400, 'INVALID_URL', 'url must be a valid http/https URL');
     }
     fields.push('url = ?');
     values.push(cleanUrl);
   }
 
   if (title !== undefined) {
-    if (String(title).length > 200) {
-      return res.status(400).json({ error: 'title too long (max 200 chars)' });
-    }
     fields.push('title = ?');
     values.push(String(title).trim());
   }
 
   if (position !== undefined) {
-    if (!Number.isInteger(position)) {
-      return res.status(400).json({ error: 'position must be an integer' });
-    }
     fields.push('position = ?');
     values.push(position);
-  }
-
-  if (fields.length === 0) {
-    return res.status(400).json({ error: 'Nothing to update' });
   }
 
   values.push(dialId);
@@ -161,7 +176,7 @@ router.put('/:dialId', async (req, res) => {
       [...values, userId]
     );
     if (result.affectedRows === 0) {
-      return res.status(404).json({ error: 'Dial not found' });
+      return sendError(res, 404, 'DIAL_NOT_FOUND', 'Dial not found');
     }
     const [rows] = await db.execute(
       `SELECT d.*
@@ -173,7 +188,7 @@ router.put('/:dialId', async (req, res) => {
     res.json(rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to update dial' });
+    return sendError(res, 500, 'UPDATE_DIAL_FAILED', 'Failed to update dial');
   }
 });
 
@@ -190,7 +205,7 @@ router.delete('/:dialId', async (req, res) => {
       [dialId, userId]
     );
     if (existing.length === 0) {
-      return res.status(404).json({ error: 'Dial not found' });
+      return sendError(res, 404, 'DIAL_NOT_FOUND', 'Dial not found');
     }
     safeDeleteFile(existing[0].icon_path);
     await db.execute(
@@ -203,7 +218,7 @@ router.delete('/:dialId', async (req, res) => {
     res.status(204).end();
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to delete dial' });
+    return sendError(res, 500, 'DELETE_DIAL_FAILED', 'Failed to delete dial');
   }
 });
 
@@ -212,7 +227,7 @@ router.post('/:dialId/icon', upload.single('icon'), async (req, res) => {
   const { dialId } = req.params;
   const userId = req.auth.userId;
   if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
+    return sendError(res, 400, 'MISSING_ICON_FILE', 'No file uploaded');
   }
 
   try {
@@ -225,7 +240,7 @@ router.post('/:dialId/icon', upload.single('icon'), async (req, res) => {
     );
     if (existing.length === 0) {
       safeDeleteFile(req.file.filename);
-      return res.status(404).json({ error: 'Dial not found' });
+      return sendError(res, 404, 'DIAL_NOT_FOUND', 'Dial not found');
     }
     // Remove old icon file if any
     safeDeleteFile(existing[0].icon_path);
@@ -249,14 +264,14 @@ router.post('/:dialId/icon', upload.single('icon'), async (req, res) => {
   } catch (err) {
     safeDeleteFile(req.file?.filename);
     console.error(err);
-    res.status(500).json({ error: 'Failed to save icon' });
+    return sendError(res, 500, 'SAVE_ICON_FAILED', 'Failed to save icon');
   }
 });
 
 // multer error handler for this router
 router.use((err, req, res, next) => {
   if (err instanceof multer.MulterError || err.message === 'Only image files are allowed') {
-    return res.status(400).json({ error: err.message });
+    return sendError(res, 400, 'INVALID_ICON_UPLOAD', err.message);
   }
   next(err);
 });
@@ -274,7 +289,7 @@ router.delete('/:dialId/icon', async (req, res) => {
       [dialId, userId]
     );
     if (existing.length === 0) {
-      return res.status(404).json({ error: 'Dial not found' });
+      return sendError(res, 404, 'DIAL_NOT_FOUND', 'Dial not found');
     }
     safeDeleteFile(existing[0].icon_path);
     await db.execute(
@@ -287,7 +302,7 @@ router.delete('/:dialId/icon', async (req, res) => {
     res.status(204).end();
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to delete icon' });
+    return sendError(res, 500, 'DELETE_ICON_FAILED', 'Failed to delete icon');
   }
 });
 

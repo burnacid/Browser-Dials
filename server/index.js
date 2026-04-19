@@ -500,6 +500,15 @@ async function ensureSchema() {
     await db.execute('CREATE INDEX idx_profiles_user ON profiles(user_id)');
   }
 
+  const [profilePositionIndexRows] = await db.execute(
+    `SELECT INDEX_NAME
+     FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'profiles' AND INDEX_NAME = 'idx_profiles_user_position'`
+  );
+  if (profilePositionIndexRows.length === 0) {
+    await db.execute('CREATE INDEX idx_profiles_user_position ON profiles(user_id, position, created_at)');
+  }
+
   const [profilePropertiesColumns] = await db.execute(
     `SELECT COLUMN_NAME
      FROM INFORMATION_SCHEMA.COLUMNS
@@ -516,6 +525,15 @@ async function ensureSchema() {
   );
   if (dialSettingsColumns.length === 0) {
     await db.execute('ALTER TABLE dials ADD COLUMN settings_json LONGTEXT NULL AFTER icon_path');
+  }
+
+  const [dialPositionIndexRows] = await db.execute(
+    `SELECT INDEX_NAME
+     FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'dials' AND INDEX_NAME = 'idx_dials_profile_position'`
+  );
+  if (dialPositionIndexRows.length === 0) {
+    await db.execute('CREATE INDEX idx_dials_profile_position ON dials(profile_id, position, created_at)');
   }
 
   const [dialFkRows] = await db.execute(
@@ -590,12 +608,69 @@ async function backfillLegacyProfilesToDefaultUser() {
   }
 }
 
-app.listen(PORT, async () => {
-  console.log(`Browser Dials server listening on port ${PORT}`);
+let serverInstance = null;
+
+function validateRuntimeConfig() {
+  if (!Number.isInteger(PORT) || PORT <= 0 || PORT > 65535) {
+    throw new Error('PORT must be an integer between 1 and 65535');
+  }
+}
+
+async function startServer() {
+  validateRuntimeConfig();
   await ensureSchema();
   await seedInitialApiKey();
   await seedInitialUser();
   await backfillLegacyProfilesToDefaultUser();
-});
 
-module.exports = app; // for testing
+  await new Promise((resolve, reject) => {
+    serverInstance = app.listen(PORT, () => {
+      console.log(`Browser Dials server listening on port ${PORT}`);
+      resolve();
+    });
+    serverInstance.once('error', reject);
+  });
+
+  return serverInstance;
+}
+
+async function stopServer() {
+  if (!serverInstance) return;
+  await new Promise((resolve, reject) => {
+    serverInstance.close(err => (err ? reject(err) : resolve()));
+  });
+  serverInstance = null;
+}
+
+function installSignalHandlers() {
+  const shutdown = async (signal) => {
+    try {
+      console.log(`Received ${signal}, shutting down...`);
+      await stopServer();
+      await db.end();
+      process.exit(0);
+    } catch (err) {
+      console.error('Shutdown error:', err.message);
+      process.exit(1);
+    }
+  };
+
+  process.on('SIGINT', () => {
+    void shutdown('SIGINT');
+  });
+  process.on('SIGTERM', () => {
+    void shutdown('SIGTERM');
+  });
+}
+
+if (require.main === module) {
+  installSignalHandlers();
+  startServer().catch((err) => {
+    console.error('Startup failed:', err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = app;
+module.exports.startServer = startServer;
+module.exports.stopServer = stopServer;

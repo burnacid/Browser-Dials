@@ -25,7 +25,7 @@ services:
     networks:
       - browser-dials-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3737/api/sync"]
+      test: ["CMD", "curl", "-f", "http://localhost:3737/health"]
       timeout: 5s
       retries: 5
       interval: 30s

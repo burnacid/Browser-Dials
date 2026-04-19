@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "create-user": "node scripts/create-user.js"
+    "create-user": "node scripts/create-user.js",
+    "lint": "node --check index.js db.js security.js lib/http.js middleware/apiKey.js middleware/auth.js middleware/validate.js routes/auth.js routes/dials.js routes/profiles.js scripts/create-user.js",
+    "test": "node --test"
   },
   "dependencies": {
     "cors": "^2.8.5",

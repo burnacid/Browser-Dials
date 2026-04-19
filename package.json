@@ -4,7 +4,9 @@
   "version": "1.0.0",
   "description": "Root workspace — icon generation only",
   "scripts": {
-    "icons": "node generate-icons.js"
+    "icons": "node generate-icons.js",
+    "lint": "npm --prefix server run lint",
+    "test": "npm --prefix server run test"
   },
   "dependencies": {
     "canvas": "^2.11.2"
