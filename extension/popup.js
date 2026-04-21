@@ -21,6 +21,47 @@ function setStatus(message, tone = '') {
   if (tone) el.classList.add(tone);
 }
 
+function setUrlHint(message, tone = '') {
+  const el = document.getElementById('url-hint');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.remove('ok', 'err');
+  if (tone) el.classList.add(tone);
+}
+
+function setAddButtonEnabled(enabled) {
+  const btn = document.getElementById('btn-add');
+  if (!(btn instanceof HTMLButtonElement)) return;
+  btn.disabled = !enabled;
+}
+
+function updateUrlValidationUi() {
+  const urlInput = document.getElementById('dial-url');
+  if (!(urlInput instanceof HTMLInputElement)) return false;
+
+  const raw = urlInput.value.trim();
+  const cleanUrl = normalizeHttpUrl(raw);
+
+  if (!raw) {
+    setUrlHint('Enter an http or https URL.', '');
+    urlInput.setCustomValidity('');
+    setAddButtonEnabled(false);
+    return false;
+  }
+
+  if (!cleanUrl) {
+    setUrlHint('Use a valid http or https URL.', 'err');
+    urlInput.setCustomValidity('Please enter a valid http or https URL.');
+    setAddButtonEnabled(false);
+    return false;
+  }
+
+  setUrlHint('URL looks good.', 'ok');
+  urlInput.setCustomValidity('');
+  setAddButtonEnabled(true);
+  return true;
+}
+
 function normalizeHttpUrl(value) {
   const raw = String(value || '').trim();
   if (!raw) return null;
@@ -95,6 +136,16 @@ async function initialize() {
   titleInput.value = tabTitle;
   urlInput.value = tabUrl;
 
+  urlInput.addEventListener('input', () => {
+    updateUrlValidationUi();
+  });
+
+  urlInput.addEventListener('blur', () => {
+    updateUrlValidationUi();
+  });
+
+  updateUrlValidationUi();
+
   if (!tabUrl) {
     setStatus('Current tab URL is not addable (non-http/https).', 'err');
   }
@@ -110,8 +161,9 @@ async function addCurrentTabDial(event) {
   const title = titleInput.value.trim();
   const cleanUrl = normalizeHttpUrl(urlInput.value);
 
-  if (!cleanUrl) {
+  if (!cleanUrl || !updateUrlValidationUi()) {
     setStatus('Please enter a valid http/https URL.', 'err');
+    urlInput.reportValidity();
     urlInput.focus();
     return;
   }

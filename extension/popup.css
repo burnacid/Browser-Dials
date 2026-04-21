@@ -115,6 +115,11 @@ button {
   background: var(--accent-dark);
 }
 
+.btn-primary:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
 .btn-secondary {
   background: var(--surface);
   color: var(--text);
@@ -133,5 +138,20 @@ button {
 }
 
 #status.err {
+  color: var(--danger);
+}
+
+.field-hint {
+  margin: -4px 0 2px;
+  min-height: 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.field-hint.ok {
+  color: #16a34a;
+}
+
+.field-hint.err {
   color: var(--danger);
 }

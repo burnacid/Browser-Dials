@@ -27,6 +27,18 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 body {
   font-family: 'Segoe UI Variable', 'Aptos', 'Segoe UI', sans-serif;
   background:
@@ -36,6 +48,31 @@ body {
   color: var(--text);
   font-size: 15px;
   padding: 32px 16px 64px;
+}
+
+html.in-settings-drawer body {
+  background: transparent;
+}
+
+html.in-settings-drawer .card {
+  background: color-mix(in srgb, var(--surface) 62%, transparent);
+  border-color: color-mix(in srgb, var(--border) 58%, transparent);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow: 0 14px 34px rgba(10, 18, 34, .18), inset 0 1px 0 rgba(255, 255, 255, .26);
+}
+
+html.in-settings-drawer .item-list li,
+html.in-settings-drawer input[type="text"],
+html.in-settings-drawer input[type="url"],
+html.in-settings-drawer input[type="password"],
+html.in-settings-drawer select {
+  background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
+}
+
+html.in-settings-drawer .page-header,
+html.in-settings-drawer .page-footer {
+  background: transparent;
 }
 
 /* ─── Footer ─────────────────────────────────────────────────────────────────── */
@@ -169,6 +206,40 @@ body {
 
 .section-hint { font-size: 13px; color: var(--text-muted); }
 
+.sync-health {
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 76%, transparent);
+  border-radius: 12px;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.sync-health__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sync-health__label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.sync-health__value {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.sync-health__value.sync-health__value--ok {
+  color: #16a34a;
+}
+
+.sync-health__value.sync-health__value--err {
+  color: var(--danger);
+}
+
 input[type="text"],
 input[type="url"],
 input[type="password"] {
@@ -235,6 +306,23 @@ input[type="password"]:focus {
 #sync-login-state {
   font-size: 13px;
   color: var(--text-muted);
+}
+
+.sync-guidance {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-solid) 80%, transparent);
+}
+
+#sync-guidance-text {
+  flex: 1;
+  min-width: 180px;
 }
 
 /* ─── Toggle ─────────────────────────────────────────────────────────────────── */
@@ -621,6 +709,14 @@ button:disabled {
   line-height: 1.5;
 }
 
+.modal-field {
+  margin-bottom: 18px;
+}
+
+#profile-edit-status.err {
+  color: var(--danger);
+}
+
 /* ─── Conflict Options ─────────────────────────────────────────────────────── */
 .conflict-options {
   display: flex;
@@ -690,6 +786,29 @@ button:disabled {
 
 .merge-options select {
   font-size: 13px;
+}
+
+.conflict-summary {
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-solid) 82%, transparent);
+}
+
+.conflict-summary li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.conflict-summary strong {
+  color: var(--text);
 }
 
 /* ─── Modal Actions ──────────────────────────────────────────────────────── */

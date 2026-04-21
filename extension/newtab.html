@@ -57,6 +57,17 @@
 
   <div id="toast-host" aria-live="polite" aria-atomic="false"></div>
 
+  <div id="confirm-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+    <div class="modal modal--confirm">
+      <h2 id="confirm-modal-title">Confirm action</h2>
+      <p id="confirm-modal-message" class="modal-copy"></p>
+      <div class="modal-actions">
+        <button id="confirm-modal-cancel" type="button" class="btn-secondary">Cancel</button>
+        <button id="confirm-modal-confirm" type="button" class="btn-danger btn-danger--modal">Delete</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Edit / Add dial modal ─────────────────────────────────────────── -->
   <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal">

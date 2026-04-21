@@ -371,6 +371,9 @@ const PROFILE_MODAL_ANIM_MS = 220;
 let profileModalCloseTimeoutId = null;
 const SETTINGS_DRAWER_ANIM_MS = 240;
 let settingsDrawerCloseTimeoutId = null;
+const CONFIRM_MODAL_ANIM_MS = 220;
+let confirmModalCloseTimeoutId = null;
+let confirmModalOnConfirm = null;
 
 function isFolder(dial) {
   return dial?.type === 'folder';
@@ -614,6 +617,7 @@ function renderProfileTabs() {
     nameSpan.textContent = profile.name;
 
     btn.appendChild(nameSpan);
+
     btn.addEventListener('click', () => {
       if (profileDragDidMove) {
         profileDragDidMove = false;
@@ -1864,14 +1868,46 @@ async function saveProfileFromModal() {
 }
 
 async function confirmDeleteProfile(profile) {
-  if (!confirm(`Delete profile "${profile.name}" and all its dials?`)) return;
+  if (!profile) return;
+  const profileIndex = state.profiles.findIndex(p => p.id === profile.id);
+  if (profileIndex < 0) return;
+  const snapshot = structuredClone(profile);
+  const previousActiveProfileId = activeProfileId;
+  const dialCount = Array.isArray(profile.dials) ? profile.dials.length : 0;
+  const message = `Delete profile "${profile.name}" and ${dialCount} dial${dialCount === 1 ? '' : 's'}?`;
+
+  const confirmed = await openConfirmModal({
+    title: 'Delete profile',
+    message,
+    confirmLabel: 'Delete profile',
+  });
+  if (!confirmed) return;
+
   state.profiles = state.profiles.filter(p => p.id !== profile.id);
+  state.profiles.forEach((item, idx) => {
+    item.position = idx;
+  });
   if (activeProfileId === profile.id) {
     activeProfileId = state.profiles[0]?.id ?? null;
   }
   await saveLocal();
   renderAll();
-  showToast('Profile deleted', 'ok');
+
+  showToast('Profile deleted', 'ok', {
+    actionLabel: 'Undo',
+    onAction: async () => {
+      if (state.profiles.some(p => p.id === snapshot.id)) return;
+      const insertAt = Math.max(0, Math.min(profileIndex, state.profiles.length));
+      state.profiles.splice(insertAt, 0, snapshot);
+      state.profiles.forEach((item, idx) => {
+        item.position = idx;
+      });
+      activeProfileId = previousActiveProfileId === snapshot.id ? snapshot.id : (activeProfileId || snapshot.id);
+      await saveLocal();
+      renderAll();
+      showToast('Profile restored', 'ok');
+    },
+  });
 }
 
 // ─── Dial actions ─────────────────────────────────────────────────────────────
@@ -2182,13 +2218,39 @@ async function saveDial() {
 }
 
 async function confirmDeleteDial(dial) {
-  if (!confirm(`Delete "${dial.title || dial.url}"?`)) return;
-  const profile = state.profiles.find(p => p.id === activeProfileId);
+  if (!dial) return;
+  const profile = findProfileByDialId(dial.id);
   if (!profile) return;
-  profile.dials = profile.dials.filter(d => d.id !== dial.id);
+  const dialIndex = profile.dials.findIndex(item => item.id === dial.id);
+  if (dialIndex < 0) return;
+  const snapshot = structuredClone(profile.dials[dialIndex]);
+
+  const confirmed = await openConfirmModal({
+    title: 'Delete dial',
+    message: `Delete "${dial.title || dial.url}"?`,
+    confirmLabel: 'Delete dial',
+  });
+  if (!confirmed) return;
+
+  profile.dials.splice(dialIndex, 1);
+  normalizeDialPositions(profile);
   await saveLocal();
   renderAll();
-  showToast('Dial deleted', 'ok');
+
+  showToast('Dial deleted', 'ok', {
+    actionLabel: 'Undo',
+    onAction: async () => {
+      const targetProfile = state.profiles.find(p => p.id === profile.id);
+      if (!targetProfile) return;
+      if (targetProfile.dials.some(item => item.id === snapshot.id)) return;
+      const insertAt = Math.max(0, Math.min(dialIndex, targetProfile.dials.length));
+      targetProfile.dials.splice(insertAt, 0, snapshot);
+      normalizeDialPositions(targetProfile);
+      await saveLocal();
+      renderAll();
+      showToast('Dial restored', 'ok');
+    },
+  });
 }
 
 async function handleRemoveIcon(dialId) {
@@ -2556,7 +2618,7 @@ function renderSyncStatusChip() {
   `;
 }
 
-function showToast(message, tone = 'ok') {
+function showToast(message, tone = 'ok', options = {}) {
   if (!message) return;
   const host = document.getElementById('toast-host');
   if (!host) return;
@@ -2568,13 +2630,101 @@ function showToast(message, tone = 'ok') {
 
   const toast = document.createElement('div');
   toast.className = `toast toast--${tone === 'err' ? 'err' : 'ok'}`;
-  toast.textContent = message;
+  const actionLabel = typeof options.actionLabel === 'string' ? options.actionLabel.trim() : '';
+  const onAction = typeof options.onAction === 'function' ? options.onAction : null;
+
+  if (actionLabel && onAction) {
+    const row = document.createElement('div');
+    row.className = 'toast__row';
+
+    const messageSpan = document.createElement('span');
+    messageSpan.className = 'toast__message';
+    messageSpan.textContent = message;
+
+    const actionBtn = document.createElement('button');
+    actionBtn.type = 'button';
+    actionBtn.className = 'toast__action';
+    actionBtn.textContent = actionLabel;
+    actionBtn.addEventListener('click', () => {
+      if (toastTimeoutId) {
+        clearTimeout(toastTimeoutId);
+        toastTimeoutId = null;
+      }
+      host.innerHTML = '';
+      void onAction();
+    });
+
+    row.appendChild(messageSpan);
+    row.appendChild(actionBtn);
+    toast.appendChild(row);
+  } else {
+    toast.textContent = message;
+  }
   host.appendChild(toast);
 
   toastTimeoutId = setTimeout(() => {
     host.innerHTML = '';
     toastTimeoutId = null;
   }, 2500);
+}
+
+function openConfirmModal({ title, message, confirmLabel = 'Delete' }) {
+  const overlay = document.getElementById('confirm-modal-overlay');
+  const titleEl = document.getElementById('confirm-modal-title');
+  const messageEl = document.getElementById('confirm-modal-message');
+  const confirmBtn = document.getElementById('confirm-modal-confirm');
+
+  if (!(overlay instanceof HTMLElement) || !(titleEl instanceof HTMLElement) || !(messageEl instanceof HTMLElement) || !(confirmBtn instanceof HTMLButtonElement)) {
+    return Promise.resolve(false);
+  }
+
+  if (confirmModalCloseTimeoutId !== null) {
+    clearTimeout(confirmModalCloseTimeoutId);
+    confirmModalCloseTimeoutId = null;
+  }
+
+  titleEl.textContent = title || 'Confirm action';
+  messageEl.textContent = message || '';
+  confirmBtn.textContent = confirmLabel;
+
+  overlay.classList.remove('modal-overlay--closing');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('modal-overlay--opening');
+  void overlay.offsetWidth;
+  overlay.classList.remove('modal-overlay--opening');
+  activateModalFocusTrap('confirm-modal-overlay', '#confirm-modal-cancel');
+
+  return new Promise(resolve => {
+    confirmModalOnConfirm = resolve;
+    overlay.dataset.pending = 'true';
+  });
+}
+
+function closeConfirmModal(result = false) {
+  const overlay = document.getElementById('confirm-modal-overlay');
+  if (!(overlay instanceof HTMLElement)) return;
+  if (overlay.classList.contains('hidden') || overlay.classList.contains('modal-overlay--closing')) return;
+
+  overlay.classList.remove('modal-overlay--opening');
+  overlay.classList.add('modal-overlay--closing');
+  if (confirmModalCloseTimeoutId !== null) {
+    clearTimeout(confirmModalCloseTimeoutId);
+  }
+  confirmModalCloseTimeoutId = setTimeout(() => {
+    overlay.classList.add('hidden');
+    overlay.classList.remove('modal-overlay--closing');
+    confirmModalCloseTimeoutId = null;
+  }, CONFIRM_MODAL_ANIM_MS);
+  releaseModalFocusTrap('confirm-modal-overlay', true);
+
+  if (overlay.dataset.pending === 'true') {
+    overlay.dataset.pending = '';
+    const resolver = confirmModalOnConfirm;
+    confirmModalOnConfirm = null;
+    if (typeof resolver === 'function') {
+      resolver(Boolean(result));
+    }
+  }
 }
 
 function isTypingContext(target) {
@@ -3053,6 +3203,20 @@ document.getElementById('profile-modal-overlay').addEventListener('click', e => 
   }
 });
 
+document.getElementById('confirm-modal-cancel').addEventListener('click', () => {
+  closeConfirmModal(false);
+});
+
+document.getElementById('confirm-modal-confirm').addEventListener('click', () => {
+  closeConfirmModal(true);
+});
+
+document.getElementById('confirm-modal-overlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) {
+    closeConfirmModal(false);
+  }
+});
+
 document.getElementById('settings-drawer-overlay').addEventListener('click', e => {
   if (e.target === e.currentTarget || e.target.classList.contains('settings-drawer-backdrop')) {
     closeSettingsDrawer();
@@ -3151,6 +3315,7 @@ document.addEventListener('keydown', e => {
 
   if (e.key === 'Escape') {
     closeAllCardMenus();
+    closeConfirmModal(false);
     closeModal();
     closeFolderModal();
     closeProfileModal();

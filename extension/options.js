@@ -1,5 +1,9 @@
 'use strict';
 
+if (window.self !== window.top) {
+  document.documentElement.classList.add('in-settings-drawer');
+}
+
 // ─── Debug Mode ──────────────────────────────────────────────────────────────
 // Enable via console: localStorage.setItem('DEBUG_BROWSER_DIALS', 'true')
 // Disable via console: localStorage.removeItem('DEBUG_BROWSER_DIALS')
@@ -20,6 +24,15 @@ function debug(...args) {
   if (DEBUG_MODE) {
     console.log('%c[Browser Dials]', 'color: #0f766e; font-weight: bold', ...args);
   }
+}
+
+function announceA11y(message) {
+  const announcer = document.getElementById('a11y-announcer');
+  if (!announcer) return;
+  announcer.textContent = '';
+  requestAnimationFrame(() => {
+    announcer.textContent = message;
+  });
 }
 
 const STORAGE_KEY_STATE       = 'dials_state';
@@ -97,7 +110,81 @@ let syncLoggedIn = false;
 let syncLoggedUser = '';
 let activeProfileId = null;
 let syncPasswordChangeExpanded = false;
+let lastSyncAction = null;
 const expandedThemeEditorProfileIds = new Set();
+const modalFocusState = new Map();
+
+function getFocusableElements(root) {
+  if (!(root instanceof HTMLElement)) return [];
+  const selectors = [
+    'button:not([disabled])',
+    'a[href]',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+  ];
+  return Array.from(root.querySelectorAll(selectors.join(','))).filter(el => {
+    if (!(el instanceof HTMLElement)) return false;
+    if (el.hasAttribute('hidden')) return false;
+    if (el.closest('.modal--hidden')) return false;
+    return true;
+  });
+}
+
+function activateModalFocusTrap(modalId, initialSelector) {
+  const modal = document.getElementById(modalId);
+  if (!(modal instanceof HTMLElement)) return;
+
+  releaseModalFocusTrap(modalId, false);
+
+  const returnFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const onKeyDown = e => {
+    if (e.key !== 'Tab') return;
+    const focusable = getFocusableElements(modal);
+    if (focusable.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const current = document.activeElement;
+
+    if (e.shiftKey) {
+      if (current === first || !modal.contains(current)) {
+        e.preventDefault();
+        last.focus();
+      }
+      return;
+    }
+
+    if (current === last || !modal.contains(current)) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
+  modal.addEventListener('keydown', onKeyDown);
+  modalFocusState.set(modalId, {
+    returnFocusEl,
+    cleanup: () => modal.removeEventListener('keydown', onKeyDown),
+  });
+
+  const initialTarget = (initialSelector && modal.querySelector(initialSelector)) || getFocusableElements(modal)[0];
+  if (initialTarget instanceof HTMLElement) {
+    initialTarget.focus();
+  }
+}
+
+function releaseModalFocusTrap(modalId, restoreFocus = true) {
+  const focusState = modalFocusState.get(modalId);
+  if (!focusState) return;
+  focusState.cleanup();
+  modalFocusState.delete(modalId);
+  if (restoreFocus && focusState.returnFocusEl?.isConnected) {
+    focusState.returnFocusEl.focus();
+  }
+}
 
 function normalizeGridColumns(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -299,7 +386,35 @@ async function syncSettingsToServerIfEnabled() {
   }
 }
 
+function setLastSyncAction(action) {
+  lastSyncAction = action;
+}
+
+async function retryLastSyncAction() {
+  if (!lastSyncAction) return;
+  if (lastSyncAction === 'save') {
+    await saveSyncSettings();
+    return;
+  }
+  if (lastSyncAction === 'test') {
+    await testSyncConnection();
+    return;
+  }
+  if (lastSyncAction === 'force') {
+    await forceSyncNow();
+    return;
+  }
+  if (lastSyncAction === 'register') {
+    await registerAccount();
+    return;
+  }
+  if (lastSyncAction === 'change-password') {
+    await changeSyncPassword();
+  }
+}
+
 async function forceSyncNow() {
+  setLastSyncAction('force');
   debug('forceSyncNow called');
   const draft = getDraftSyncConfigFromInputs();
   if (draft.mode !== 'server') {
@@ -350,7 +465,12 @@ async function forceSyncNow() {
 
     if (trueConflict || possibleFirstSyncConflict) {
       debug('Conflict detected', { trueConflict, possibleFirstSyncConflict });
-      const result = await showSyncConflictDialog(trueConflict);
+      const localSummary = summarizeProfilesPayload(localProfilesPayload);
+      const serverSummary = summarizeProfilesPayload(serverProfilesPayload);
+      const result = await showSyncConflictDialog(trueConflict, {
+        localSummary,
+        serverSummary,
+      });
       
       if (!result) {
         debug('Force sync cancelled by user');
@@ -600,10 +720,20 @@ async function mergeStateFromServer(syncConfig, localState, precedence = 'local'
   return { profiles: mergedProfiles };
 }
 
-async function showSyncConflictDialog(trueConflict) {
+function summarizeProfilesPayload(profilesPayload) {
+  const profiles = Array.isArray(profilesPayload) ? profilesPayload : [];
+  const dials = profiles.reduce((sum, profile) => sum + (Array.isArray(profile.dials) ? profile.dials.length : 0), 0);
+  return {
+    profiles: profiles.length,
+    dials,
+  };
+}
+
+async function showSyncConflictDialog(trueConflict, details = null) {
   return new Promise((resolve) => {
     const modal = document.getElementById('sync-conflict-modal');
     const description = document.getElementById('conflict-description');
+    const summary = document.getElementById('conflict-summary');
     const cancelBtn = document.getElementById('btn-conflict-cancel');
     const proceedBtn = document.getElementById('btn-conflict-proceed');
     const strategyRadios = Array.from(document.querySelectorAll('input[name="sync-strategy"]'));
@@ -614,6 +744,17 @@ async function showSyncConflictDialog(trueConflict) {
     description.textContent = trueConflict
       ? 'Both your local dials and the server data have changed since the last sync. Choose how you want to handle this:'
       : 'The server has data that differs from your local dials, but the sync baseline is empty or missing. Choose an action:';
+
+    if (summary) {
+      const localProfiles = details?.localSummary?.profiles ?? '-';
+      const localDials = details?.localSummary?.dials ?? '-';
+      const serverProfiles = details?.serverSummary?.profiles ?? '-';
+      const serverDials = details?.serverSummary?.dials ?? '-';
+      summary.innerHTML = `
+        <li><span>Local snapshot</span><strong>${localProfiles} profiles, ${localDials} dials</strong></li>
+        <li><span>Server snapshot</span><strong>${serverProfiles} profiles, ${serverDials} dials</strong></li>
+      `;
+    }
 
     const updateMergeOptionsVisibility = () => {
       const selectedStrategy = document.querySelector('input[name="sync-strategy"]:checked')?.value;
@@ -631,9 +772,13 @@ async function showSyncConflictDialog(trueConflict) {
       modal.classList.add('modal--hidden');
       cancelBtn.removeEventListener('click', handleCancel);
       proceedBtn.removeEventListener('click', handleProceed);
+      modal.removeEventListener('click', handleBackdropClick);
+      modal.removeEventListener('keydown', handleKeydown);
       strategyRadios.forEach(radio => {
         radio.removeEventListener('change', updateMergeOptionsVisibility);
       });
+      releaseModalFocusTrap('sync-conflict-modal', true);
+      announceA11y('Sync conflict dialog closed');
       resolve(syncStrategy);
     };
 
@@ -643,12 +788,27 @@ async function showSyncConflictDialog(trueConflict) {
       const precedence = document.getElementById('merge-precedence')?.value || 'local';
       handleClose({ strategy: selectedStrategy, precedence });
     };
+    const handleBackdropClick = event => {
+      if (event.target === modal || event.target.classList?.contains('modal-overlay')) {
+        handleCancel();
+      }
+    };
+    const handleKeydown = event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        handleCancel();
+      }
+    };
 
     cancelBtn.addEventListener('click', handleCancel);
     proceedBtn.addEventListener('click', handleProceed);
+    modal.addEventListener('click', handleBackdropClick);
+    modal.addEventListener('keydown', handleKeydown);
 
     // Show modal
     modal.classList.remove('modal--hidden');
+    activateModalFocusTrap('sync-conflict-modal', '#btn-conflict-cancel');
+    announceA11y('Sync conflict dialog opened');
   });
 }
 
@@ -718,6 +878,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateSubtitle();
   updateBackButtonVisibility();
   updateLoginStateUi();
+  updateSyncHealthPanel();
 
   applyActiveProfileTheme();
   renderProfiles();
@@ -946,16 +1107,154 @@ function renderProfiles() {
 }
 
 async function renameProfile(profile) {
-  const name = prompt('Rename profile:', profile.name);
-  if (!name || !name.trim() || name.trim() === profile.name) return;
-  profile.name = name.trim();
+  const name = await showProfileEditDialog(profile);
+  if (!name) return;
+  if (name === profile.name) return;
+  profile.name = name;
   await saveState();
   renderProfiles();
   applyActiveProfileTheme();
 }
 
+async function showProfileEditDialog(profile) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('profile-edit-modal');
+    const nameInput = document.getElementById('profile-edit-name');
+    const statusEl = document.getElementById('profile-edit-status');
+    const cancelBtn = document.getElementById('btn-profile-edit-cancel');
+    const saveBtn = document.getElementById('btn-profile-edit-save');
+
+    if (!modal || !nameInput || !statusEl || !cancelBtn || !saveBtn) {
+      resolve(null);
+      return;
+    }
+
+    const validate = () => {
+      const value = nameInput.value.trim();
+      if (!value) {
+        statusEl.textContent = 'Profile name is required.';
+        statusEl.className = 'field-hint err';
+        return false;
+      }
+      statusEl.textContent = '';
+      statusEl.className = 'field-hint';
+      return true;
+    };
+
+    const handleClose = result => {
+      modal.classList.add('modal--hidden');
+      cancelBtn.removeEventListener('click', handleCancel);
+      saveBtn.removeEventListener('click', handleSave);
+      nameInput.removeEventListener('input', handleInput);
+      nameInput.removeEventListener('keydown', handleKeydown);
+      modal.removeEventListener('click', handleBackdropClick);
+      releaseModalFocusTrap('profile-edit-modal', true);
+      announceA11y('Edit profile dialog closed');
+      resolve(result);
+    };
+
+    const handleCancel = () => handleClose(null);
+    const handleSave = () => {
+      if (!validate()) return;
+      handleClose(nameInput.value.trim());
+    };
+    const handleInput = () => {
+      validate();
+    };
+    const handleKeydown = event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        handleSave();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        handleCancel();
+      }
+    };
+    const handleBackdropClick = event => {
+      if (event.target === modal || event.target.classList?.contains('modal-overlay')) {
+        handleCancel();
+      }
+    };
+
+    nameInput.value = profile?.name || '';
+    statusEl.textContent = '';
+    statusEl.className = 'field-hint';
+
+    cancelBtn.addEventListener('click', handleCancel);
+    saveBtn.addEventListener('click', handleSave);
+    nameInput.addEventListener('input', handleInput);
+    nameInput.addEventListener('keydown', handleKeydown);
+    modal.addEventListener('click', handleBackdropClick);
+
+    modal.classList.remove('modal--hidden');
+    activateModalFocusTrap('profile-edit-modal', '#profile-edit-name');
+    nameInput.select();
+    announceA11y('Edit profile dialog opened');
+  });
+}
+
+async function showProfileDeleteDialog(profile) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('profile-delete-modal');
+    const description = document.getElementById('profile-delete-description');
+    const cancelBtn = document.getElementById('btn-profile-delete-cancel');
+    const confirmBtn = document.getElementById('btn-profile-delete-confirm');
+
+    if (!modal || !description || !cancelBtn || !confirmBtn) {
+      resolve(false);
+      return;
+    }
+
+    const dialCount = (profile?.dials || []).length;
+    description.textContent = `Delete profile "${profile.name}" and ${dialCount} dial${dialCount === 1 ? '' : 's'}? This cannot be undone from Settings.`;
+
+    const handleClose = shouldDelete => {
+      modal.classList.add('modal--hidden');
+      cancelBtn.removeEventListener('click', handleCancel);
+      confirmBtn.removeEventListener('click', handleConfirm);
+      modal.removeEventListener('keydown', handleKeydown);
+      modal.removeEventListener('click', handleBackdropClick);
+      releaseModalFocusTrap('profile-delete-modal', true);
+      announceA11y('Delete profile dialog closed');
+      resolve(shouldDelete);
+    };
+
+    const handleCancel = () => handleClose(false);
+    const handleConfirm = () => handleClose(true);
+    const handleBackdropClick = event => {
+      if (event.target === modal || event.target.classList?.contains('modal-overlay')) {
+        handleClose(false);
+      }
+    };
+    const handleKeydown = event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        handleCancel();
+        return;
+      }
+      if (event.key === 'Enter') {
+        const target = event.target;
+        const tag = target instanceof HTMLElement ? target.tagName : '';
+        if (tag !== 'TEXTAREA') {
+          event.preventDefault();
+          handleConfirm();
+        }
+      }
+    };
+
+    cancelBtn.addEventListener('click', handleCancel);
+    confirmBtn.addEventListener('click', handleConfirm);
+    modal.addEventListener('keydown', handleKeydown);
+    modal.addEventListener('click', handleBackdropClick);
+    modal.classList.remove('modal--hidden');
+    activateModalFocusTrap('profile-delete-modal', '#btn-profile-delete-cancel');
+    announceA11y('Delete profile dialog opened');
+  });
+}
+
 async function deleteProfile(profile) {
-  if (!confirm(`Delete profile "${profile.name}" and all its dials?`)) return;
+  const shouldDelete = await showProfileDeleteDialog(profile);
+  if (!shouldDelete) return;
   const activeId = (await chromeGet([STORAGE_KEY_ACTIVE]))[STORAGE_KEY_ACTIVE];
   state.profiles = state.profiles.filter(p => p.id !== profile.id);
   if (activeId === profile.id) {
@@ -1000,6 +1299,7 @@ async function clearLocal() {
 
 // ─── Sync settings ────────────────────────────────────────────────────────────
 async function saveSyncSettings() {
+  setLastSyncAction('save');
   debug('saveSyncSettings called');
   const mode = document.getElementById('sync-mode').value;
   const rawUrl = document.getElementById('sync-server-url').value.trim();
@@ -1064,6 +1364,7 @@ async function saveSyncSettings() {
 }
 
 async function testSyncConnection() {
+  setLastSyncAction('test');
   debug('testSyncConnection called');
   const mode = document.getElementById('sync-mode').value;
   const rawUrl = document.getElementById('sync-server-url').value.trim();
@@ -1136,6 +1437,7 @@ async function testSyncConnection() {
 }
 
 async function registerAccount() {
+  setLastSyncAction('register');
   const rawUrl = document.getElementById('sync-server-url').value.trim();
   const apiKey = document.getElementById('sync-api-key').value.trim();
   const username = document.getElementById('register-username').value.trim();
@@ -1199,6 +1501,7 @@ async function registerAccount() {
 }
 
 async function changeSyncPassword() {
+  setLastSyncAction('change-password');
   const changeBtn = document.getElementById('btn-sync-change-password');
   const cancelBtn = document.getElementById('btn-sync-password-cancel');
 
@@ -1490,7 +1793,10 @@ document.getElementById('btn-sync-logout').addEventListener('click', async () =>
 
 ['sync-server-url', 'sync-api-key', 'sync-username', 'sync-password'].forEach(id => {
   document.getElementById(id).addEventListener('input', async () => {
-    if (!syncLoggedIn) return;
+    if (!syncLoggedIn) {
+      updateSyncHealthPanel();
+      return;
+    }
     syncLoggedIn = false;
     syncLoggedUser = '';
     await chrome.storage.local.set({
@@ -1633,6 +1939,8 @@ function updateSyncControlState() {
     forceRow.style.display = 'flex';
     loginSection.style.display = 'none';
     registerSection.style.display = 'none';
+    updateSyncHealthPanel();
+    updateSyncGuidance();
     return;
   }
 
@@ -1647,6 +1955,8 @@ function updateSyncControlState() {
     loginActionsRow.style.display = 'none';
     setSyncPasswordChangeExpanded(syncPasswordChangeExpanded);
     registerSection.style.display = 'none';
+    updateSyncHealthPanel();
+    updateSyncGuidance();
     return;
   }
 
@@ -1659,6 +1969,8 @@ function updateSyncControlState() {
 
   loginSection.style.display = authView === 'login' ? 'block' : 'none';
   registerSection.style.display = (!syncLoggedIn && authView === 'register') ? 'block' : 'none';
+  updateSyncHealthPanel();
+  updateSyncGuidance();
 }
 
 function updateLoginStateUi() {
@@ -1666,6 +1978,35 @@ function updateLoginStateUi() {
   el.textContent = syncLoggedIn
     ? `Logged in as ${syncLoggedUser}`
     : 'Not logged in';
+  updateSyncHealthPanel();
+}
+
+function updateSyncHealthPanel() {
+  const modeEl = document.getElementById('sync-health-mode');
+  const connectionEl = document.getElementById('sync-health-connection');
+  const configEl = document.getElementById('sync-health-config');
+  const lastSyncEl = document.getElementById('sync-health-last-sync');
+  if (!modeEl || !connectionEl || !configEl || !lastSyncEl) return;
+
+  const draft = getDraftSyncConfigFromInputs();
+  const mode = draft.mode || 'local';
+  const configReady = !!(draft.serverUrl && draft.apiKey && draft.username && draft.password);
+
+  modeEl.textContent = mode === 'server' ? 'Server sync' : 'Local only';
+  connectionEl.textContent = mode === 'server'
+    ? (syncLoggedIn ? `Connected (${syncLoggedUser})` : 'Not connected')
+    : 'N/A';
+  configEl.textContent = mode === 'server'
+    ? (configReady ? 'Ready' : 'Missing required fields')
+    : 'Not required';
+
+  const lastSyncText = document.getElementById('sync-last-success')?.textContent || 'Last sync: Never';
+  lastSyncEl.textContent = lastSyncText.replace(/^Last sync:\s*/i, '') || 'Never';
+
+  modeEl.className = 'sync-health__value';
+  connectionEl.className = `sync-health__value ${syncLoggedIn ? 'sync-health__value--ok' : 'sync-health__value--err'}`;
+  configEl.className = `sync-health__value ${configReady || mode !== 'server' ? 'sync-health__value--ok' : 'sync-health__value--err'}`;
+  lastSyncEl.className = 'sync-health__value';
 }
 
 function updateSubtitle() {
@@ -1956,6 +2297,58 @@ function setSyncStatus(msg, type) {
   const el = document.getElementById('sync-status');
   el.textContent = msg;
   el.className = type;
+  updateSyncHealthPanel();
+  updateSyncGuidance();
+}
+
+function updateSyncGuidance() {
+  const wrap = document.getElementById('sync-guidance');
+  const textEl = document.getElementById('sync-guidance-text');
+  const retryBtn = document.getElementById('btn-sync-retry-last');
+  if (!wrap || !textEl || !retryBtn) return;
+
+  const mode = document.getElementById('sync-mode')?.value || 'local';
+  const statusEl = document.getElementById('sync-status');
+  const hasSyncError = statusEl?.classList?.contains('err');
+
+  if (mode !== 'server' || !hasSyncError || !lastSyncAction) {
+    wrap.hidden = true;
+    return;
+  }
+
+  const statusMsg = (statusEl?.textContent || '').trim();
+  textEl.textContent = buildSyncGuidanceText(statusMsg, lastSyncAction);
+  retryBtn.disabled = false;
+  wrap.hidden = false;
+}
+
+function buildSyncGuidanceText(statusMsg, action) {
+  const msg = String(statusMsg || '').toLowerCase();
+  const actionLabel = {
+    save: 'saving sync settings',
+    test: 'testing connection',
+    force: 'force sync',
+    register: 'registering account',
+    'change-password': 'changing password',
+  }[action] || 'sync action';
+
+  if (/invalid credentials|incorrect password|http 401/.test(msg)) {
+    return 'Credentials were rejected. Re-enter username/password, then retry.';
+  }
+  if (/invalid api key|http 403/.test(msg)) {
+    return 'API key was rejected. Check the key in server settings, then retry.';
+  }
+  if (/enter a valid server url|invalid url|http 404|failed to fetch|network|cors/.test(msg)) {
+    return 'Server URL/network looks wrong. Verify URL and server reachability, then retry.';
+  }
+  if (/http 5\d\d|unavailable|timeout/.test(msg)) {
+    return 'Server appears unavailable right now. Wait a moment, then retry.';
+  }
+  if (/required|missing|fill in|must be/.test(msg)) {
+    return 'Some required sync fields are missing or invalid. Fix inputs, then retry.';
+  }
+
+  return `Issue while ${actionLabel}. Retry or check help.`;
 }
 
 function buildSyncSuccessMessage(prefix, syncedAt = Date.now()) {
@@ -1968,10 +2361,12 @@ function updateLastSyncLabel(timestamp) {
   if (!el) return;
   if (!timestamp) {
     el.textContent = 'Last sync: Never';
+    updateSyncHealthPanel();
     return;
   }
   const dt = new Date(timestamp);
   el.textContent = `Last sync: ${dt.toLocaleDateString()} ${dt.toLocaleTimeString()}`;
+  updateSyncHealthPanel();
 }
 
 async function recordLastSyncSuccess(timestamp) {
@@ -2084,6 +2479,14 @@ document.getElementById('btn-sync-password-toggle').addEventListener('click', ()
 
 document.getElementById('btn-sync-password-cancel').addEventListener('click', () => {
   setSyncPasswordChangeExpanded(false, true);
+});
+
+document.getElementById('btn-sync-retry-last').addEventListener('click', () => {
+  retryLastSyncAction().catch(err => setSyncStatus(err.message, 'err'));
+});
+
+document.getElementById('btn-sync-open-help').addEventListener('click', () => {
+  window.open(chrome.runtime.getURL('help.html'), '_blank', 'noopener,noreferrer');
 });
 
 document.getElementById('new-profile-name').addEventListener('keydown', e => {

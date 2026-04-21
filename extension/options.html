@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="options.css" />
 </head>
 <body>
+  <div id="a11y-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
   <div id="app">
     <header class="page-header">
       <div class="page-header__brand">
@@ -27,6 +28,25 @@
       <h2>Storage Mode</h2>
       <p class="section-hint">Choose between local-only storage or syncing with your self-hosted server.</p>
       <p class="section-hint">Server sync currently syncs profiles and dial links. Folder contents remain local.</p>
+
+      <div id="sync-health" class="sync-health" aria-live="polite">
+        <div class="sync-health__row">
+          <span class="sync-health__label">Mode</span>
+          <strong id="sync-health-mode" class="sync-health__value">Local only</strong>
+        </div>
+        <div class="sync-health__row">
+          <span class="sync-health__label">Connection</span>
+          <strong id="sync-health-connection" class="sync-health__value">Not connected</strong>
+        </div>
+        <div class="sync-health__row">
+          <span class="sync-health__label">Config</span>
+          <strong id="sync-health-config" class="sync-health__value">Not required</strong>
+        </div>
+        <div class="sync-health__row">
+          <span class="sync-health__label">Last sync</span>
+          <strong id="sync-health-last-sync" class="sync-health__value">Never</strong>
+        </div>
+      </div>
 
       <div class="field">
         <label for="sync-mode">Mode</label>
@@ -95,6 +115,11 @@
             <button id="btn-sync-save" class="btn-secondary">Save Sync Settings</button>
             <button id="btn-sync-test" class="btn-secondary">Test Connection</button>
             <span id="sync-status" aria-live="polite"></span>
+          </div>
+          <div id="sync-guidance" class="sync-guidance" hidden>
+            <span id="sync-guidance-text" class="field-hint">Sync action failed.</span>
+            <button id="btn-sync-retry-last" class="btn-secondary btn-sm" type="button">Retry</button>
+            <button id="btn-sync-open-help" class="btn-secondary btn-sm" type="button">Help</button>
           </div>
         </div>
 
@@ -243,11 +268,12 @@
   </div>
 
   <!-- ── Sync Conflict Modal ───────────────────────────────────────────────── -->
-  <div id="sync-conflict-modal" class="modal modal--hidden">
+  <div id="sync-conflict-modal" class="modal modal--hidden" role="dialog" aria-modal="true" aria-labelledby="sync-conflict-title" aria-describedby="conflict-description conflict-summary">
     <div class="modal-overlay"></div>
     <div class="modal-content">
-      <h2>Sync Conflict Detected</h2>
+      <h2 id="sync-conflict-title">Sync Conflict Detected</h2>
       <p id="conflict-description"></p>
+      <ul id="conflict-summary" class="conflict-summary"></ul>
       
       <div class="conflict-options">
         <div class="conflict-option">
@@ -288,6 +314,35 @@
       <div class="modal-actions">
         <button id="btn-conflict-cancel" class="btn-secondary">Cancel</button>
         <button id="btn-conflict-proceed" class="btn-primary">Proceed</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="profile-delete-modal" class="modal modal--hidden" role="dialog" aria-modal="true" aria-labelledby="profile-delete-title" aria-describedby="profile-delete-description">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <h2 id="profile-delete-title">Delete Profile</h2>
+      <p id="profile-delete-description"></p>
+      <div class="modal-actions">
+        <button id="btn-profile-delete-cancel" class="btn-secondary" type="button">Cancel</button>
+        <button id="btn-profile-delete-confirm" class="btn-danger" type="button">Delete profile</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="profile-edit-modal" class="modal modal--hidden" role="dialog" aria-modal="true" aria-labelledby="profile-edit-title" aria-describedby="profile-edit-description profile-edit-status">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <h2 id="profile-edit-title">Edit Profile</h2>
+      <p id="profile-edit-description" class="field-hint">Update the profile name and press Save.</p>
+      <div class="field modal-field">
+        <label for="profile-edit-name">Profile name</label>
+        <input id="profile-edit-name" type="text" maxlength="100" placeholder="Profile name" autocomplete="off" />
+        <span id="profile-edit-status" class="field-hint" aria-live="polite"></span>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-profile-edit-cancel" class="btn-secondary" type="button">Cancel</button>
+        <button id="btn-profile-edit-save" class="btn-primary" type="button">Save</button>
       </div>
     </div>
   </div>
