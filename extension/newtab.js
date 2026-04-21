@@ -2770,27 +2770,133 @@ function hostname(url) {
   try { return new URL(url).hostname; } catch { return url; }
 }
 
-function faviconUrl(url) {
-  try { return new URL(url).origin + '/favicon.ico'; } catch { return ''; }
+function getHtmlAttr(tag, name) {
+  const re = new RegExp(`${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i');
+  const m = tag.match(re);
+  return m ? (m[1] ?? m[2] ?? m[3] ?? '').trim() : '';
+}
+
+function resolveAbsoluteUrl(baseUrl, maybeRelative) {
+  try {
+    return new URL(maybeRelative, baseUrl).href;
+  } catch {
+    return '';
+  }
+}
+
+function extractIconUrlsFromHtml(html, baseUrl) {
+  const out = [];
+  const linkTagRegex = /<link\b[^>]*>/gi;
+  const tags = html.match(linkTagRegex) || [];
+
+  for (const tag of tags) {
+    const relRaw = getHtmlAttr(tag, 'rel').toLowerCase();
+    if (!relRaw || !relRaw.includes('icon')) continue;
+    const hrefRaw = getHtmlAttr(tag, 'href');
+    if (!hrefRaw) continue;
+    const abs = resolveAbsoluteUrl(baseUrl, hrefRaw);
+    if (abs) out.push(abs);
+  }
+
+  return out;
+}
+
+async function fetchTextWithTimeout(url, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+      redirect: 'follow',
+      cache: 'no-store',
+      referrerPolicy: 'no-referrer',
+    });
+    if (!response.ok) return null;
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.includes('text/html')) return null;
+    return {
+      html: await response.text(),
+      finalUrl: response.url || url,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function dedupeUrls(urls) {
+  const seen = new Set();
+  const out = [];
+  for (const u of urls) {
+    if (!u || seen.has(u)) continue;
+    seen.add(u);
+    out.push(u);
+  }
+  return out;
+}
+
+async function discoverFaviconCandidates(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return [];
+  }
+
+  const defaults = [
+    new URL('/favicon.ico', parsed.origin).href,
+    new URL('/favicon.png', parsed.origin).href,
+    new URL('/apple-touch-icon.png', parsed.origin).href,
+  ];
+
+  const page = await fetchTextWithTimeout(parsed.href, 6000);
+  if (!page) return dedupeUrls(defaults);
+
+  const discovered = extractIconUrlsFromHtml(page.html, page.finalUrl);
+  return dedupeUrls([...discovered, ...defaults]);
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function fetchImageAsDataUrl(url, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+      redirect: 'follow',
+      cache: 'no-store',
+      referrerPolicy: 'no-referrer',
+    });
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    if (!blob.type.startsWith('image/')) return null;
+    return await blobToDataUrl(blob);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function fetchFaviconAsDataUrl(url) {
   try {
-    const favUrl = faviconUrl(url);
-    if (!favUrl) return null;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    const response = await fetch(favUrl, { signal: controller.signal });
-    clearTimeout(timeoutId);
-    if (!response.ok) return null;
-    const blob = await response.blob();
-    if (!blob.type.startsWith('image/')) return null;
-    return await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
+    const candidates = await discoverFaviconCandidates(url);
+    for (const candidate of candidates.slice(0, 8)) {
+      const iconData = await fetchImageAsDataUrl(candidate, 5000);
+      if (iconData) return iconData;
+    }
+    return null;
   } catch {
     return null;
   }
